@@ -150,7 +150,7 @@ The dashboard provides real-time monitoring of:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3001` | Server port |
-| `DASHBOARD_TOKEN` | _(empty)_ | Token to protect dashboard & stats API. If unset, dashboard is open (dev mode). |
+| `DASHBOARD_PASSWORD` | _(empty)_ | Password to protect dashboard & stats API. If unset, dashboard is open (dev mode). |
 | `NEXT_PUBLIC_WS_URL` | `ws://localhost:3001` | WebSocket server URL for client |
 
 ### Examples
@@ -161,10 +161,11 @@ PORT=8080 npm start
 ```
 
 ```bash
-# Protected dashboard (set a secret token)
-DASHBOARD_TOKEN=my-secret-token npm start
-# Access: http://localhost:3001/dashboard?token=my-secret-token
-# Or via header: curl -H "Authorization: Bearer my-secret-token" http://localhost:3001/api/stats
+# Protected dashboard (set a password)
+DASHBOARD_PASSWORD=admin123 npm start
+# Access: http://localhost:3001/dashboard → will show login page
+# API: curl http://localhost:3001/api/stats?password=admin123
+# Or via Basic Auth: curl -u admin:admin123 http://localhost:3001/api/stats
 ```
 
 ```bash

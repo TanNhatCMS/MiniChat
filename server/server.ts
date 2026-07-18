@@ -4,30 +4,32 @@ import fs from 'fs';
 import path from 'path';
 
 const PORT: number = parseInt(process.env.PORT || '3001', 10);
-const DASHBOARD_TOKEN: string = process.env.DASHBOARD_TOKEN || '';
+const DASHBOARD_PASSWORD: string = process.env.DASHBOARD_PASSWORD || '';
 
 /**
- * Validate dashboard access token.
- * If DASHBOARD_TOKEN env var is set, requests must include it.
+ * Validate dashboard password.
+ * If DASHBOARD_PASSWORD env var is set, requests must include correct password.
  * If not set, dashboard is open (development mode).
  */
-function isDashboardAuthorized(token: string | null): boolean {
-  if (!DASHBOARD_TOKEN) return true; // Open access if no token configured
-  return token === DASHBOARD_TOKEN;
+function isDashboardAuthorized(password: string | null): boolean {
+  if (!DASHBOARD_PASSWORD) return true; // Open access if no password configured
+  return password === DASHBOARD_PASSWORD;
 }
 
 /**
- * Extract token from HTTP request (query param or Authorization header).
+ * Extract password from HTTP request (query param or Basic Auth).
  */
-function extractHttpToken(req: http.IncomingMessage): string | null {
-  // Check Authorization header: "Bearer <token>"
+function extractHttpPassword(req: http.IncomingMessage): string | null {
+  // Check Basic Auth header: "Basic base64(user:password)"
   const authHeader = req.headers['authorization'];
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    return authHeader.slice(7);
+  if (authHeader && authHeader.startsWith('Basic ')) {
+    const decoded = Buffer.from(authHeader.slice(6), 'base64').toString();
+    const password = decoded.split(':')[1] || '';
+    return password;
   }
-  // Check query parameter: ?token=<token>
+  // Check query parameter: ?password=<password>
   const url = new URL(req.url || '/', `http://localhost:${PORT}`);
-  return url.searchParams.get('token');
+  return url.searchParams.get('password');
 }
 
 // Interfaces
@@ -175,18 +177,25 @@ function getUserGroups(username: string): string[] {
 }
 
 // HTTP server for dashboard
-// Protected by DASHBOARD_TOKEN when set. If unset, open access (dev mode).
+// Protected by DASHBOARD_PASSWORD when set. If unset, open access (dev mode).
 const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
-  if (req.url?.startsWith('/dashboard') || req.url === '/' || req.url?.startsWith('/api/stats')) {
-    const token = extractHttpToken(req);
-    if (!isDashboardAuthorized(token)) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized. Provide a valid token via ?token= query param or Authorization: Bearer header.' }));
+  const pathname = (req.url || '/').split('?')[0];
+
+  if (pathname === '/' || pathname === '/dashboard' || pathname === '/api/stats') {
+    const password = extractHttpPassword(req);
+    if (!isDashboardAuthorized(password)) {
+      // If DASHBOARD_PASSWORD is set but no valid password provided, prompt for login
+      if (pathname === '/api/stats') {
+        res.writeHead(401, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Unauthorized. Provide password via ?password= or Basic Auth.' }));
+      } else {
+        // Show login page
+        res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getDashboardLoginPage());
+      }
       return;
     }
   }
-
-  const pathname = (req.url || '/').split('?')[0];
 
   if (pathname === '/' || pathname === '/dashboard') {
     const dashboardPath = path.join(__dirname, 'dashboard.html');
@@ -207,6 +216,53 @@ const server = http.createServer((req: http.IncomingMessage, res: http.ServerRes
     res.end('Not Found');
   }
 });
+
+/**
+ * Generate a simple HTML login page for dashboard authentication.
+ */
+function getDashboardLoginPage(): string {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MiniChat Dashboard - Login</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .login-box { background: #16213e; border: 1px solid #0f3460; border-radius: 12px; padding: 40px; width: 100%; max-width: 380px; text-align: center; }
+    .login-box h1 { color: #e94560; margin-bottom: 8px; font-size: 1.5rem; }
+    .login-box p { color: #aaa; margin-bottom: 24px; font-size: 0.9rem; }
+    .login-box input { width: 100%; padding: 12px 16px; border: 1px solid #0f3460; border-radius: 8px; background: #1a1a2e; color: #eee; font-size: 1rem; margin-bottom: 16px; outline: none; }
+    .login-box input:focus { border-color: #e94560; }
+    .login-box button { width: 100%; padding: 12px; border: none; border-radius: 8px; background: #e94560; color: white; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    .login-box button:hover { background: #c73e54; }
+    .error { color: #e94560; font-size: 0.85rem; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div class="login-box">
+    <h1>MiniChat Dashboard</h1>
+    <p>Enter password to access the admin dashboard</p>
+    <form id="loginForm">
+      <input type="password" id="password" placeholder="Dashboard password" autofocus />
+      <button type="submit">Login</button>
+    </form>
+    <p class="error" id="error" style="display:none">Incorrect password</p>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+      const pw = document.getElementById('password').value;
+      window.location.href = '/dashboard?password=' + encodeURIComponent(pw);
+    });
+    if (window.location.search.includes('password=')) {
+      document.getElementById('error').style.display = 'block';
+    }
+  </script>
+</body>
+</html>`;
+}
 
 // WebSocket server
 const wss = new WebSocketServer({ server });
@@ -445,10 +501,10 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       case 'subscribe-dashboard': {
-        // Require token for dashboard subscription when DASHBOARD_TOKEN is set
-        const dashToken = payload.token as string | undefined;
-        if (!isDashboardAuthorized(dashToken || null)) {
-          sendToWs(ws, 'error', { message: 'Unauthorized: invalid dashboard token' });
+        // Require password for dashboard subscription when DASHBOARD_PASSWORD is set
+        const dashPassword = payload.password as string | undefined;
+        if (!isDashboardAuthorized(dashPassword || null)) {
+          sendToWs(ws, 'error', { message: 'Unauthorized: incorrect dashboard password' });
           return;
         }
         dashboardClients.add(ws);
