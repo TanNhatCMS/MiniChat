@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MiniChat - Admin Dashboard</title>
+  <title>MiniChat - Bảng điều khiển</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -186,57 +186,57 @@
 </head>
 <body>
   <div class="header">
-    <h1>MiniChat Dashboard</h1>
-    <p>Real-time server monitoring</p>
-    <div id="connectionStatus" class="connection-status disconnected">Disconnected</div>
+    <h1>MiniChat - Bảng điều khiển</h1>
+    <p>Giám sát máy chủ thời gian thực</p>
+    <div id="connectionStatus" class="connection-status disconnected">Đã ngắt kết nối</div>
   </div>
 
   <div class="stats-grid">
     <div class="stat-card">
       <div class="stat-value" id="statOnlineUsers">0</div>
-      <div class="stat-label">Online Users</div>
+      <div class="stat-label">Đang trực tuyến</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statActiveGroups">0</div>
-      <div class="stat-label">Active Groups</div>
+      <div class="stat-label">Nhóm hoạt động</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statTotalMessages">0</div>
-      <div class="stat-label">Total Messages</div>
+      <div class="stat-label">Tổng tin nhắn</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statGroupMessages">0</div>
-      <div class="stat-label">Group Messages</div>
+      <div class="stat-label">Tin nhắn nhóm</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statPrivateMessages">0</div>
-      <div class="stat-label">Private Messages</div>
+      <div class="stat-label">Tin nhắn riêng</div>
     </div>
     <div class="stat-card">
       <div class="stat-value" id="statTotalConnections">0</div>
-      <div class="stat-label">Total Connections</div>
+      <div class="stat-label">Tổng kết nối</div>
     </div>
   </div>
 
   <div class="panels-grid">
     <div class="panel">
-      <div class="panel-header">Online Users</div>
+      <div class="panel-header">Người dùng trực tuyến</div>
       <div class="panel-content" id="usersPanel">
-        <div class="empty-state">No users online</div>
+        <div class="empty-state">Không có người dùng trực tuyến</div>
       </div>
     </div>
     <div class="panel">
-      <div class="panel-header">Active Groups</div>
+      <div class="panel-header">Nhóm hoạt động</div>
       <div class="panel-content" id="groupsPanel">
-        <div class="empty-state">No active groups</div>
+        <div class="empty-state">Không có nhóm hoạt động</div>
       </div>
     </div>
   </div>
 
   <div class="logs-section">
-    <div class="logs-header">Activity Logs</div>
+    <div class="logs-header">Nhật ký hoạt động</div>
     <div class="logs-content" id="logsContent">
-      <div class="empty-state">No activity yet</div>
+      <div class="empty-state">Chưa có hoạt động nào</div>
     </div>
   </div>
 
@@ -251,7 +251,7 @@
 
       ws.onopen = () => {
         document.getElementById('connectionStatus').className = 'connection-status connected';
-        document.getElementById('connectionStatus').textContent = 'Connected';
+        document.getElementById('connectionStatus').textContent = 'Đã kết nối';
         ws.send(JSON.stringify({ type: 'subscribe-dashboard', payload: {} }));
       };
 
@@ -266,7 +266,7 @@
 
       ws.onclose = () => {
         document.getElementById('connectionStatus').className = 'connection-status disconnected';
-        document.getElementById('connectionStatus').textContent = 'Disconnected - Reconnecting...';
+        document.getElementById('connectionStatus').textContent = 'Đã ngắt kết nối - Đang kết nối lại...';
         reconnectTimeout = setTimeout(connect, 3000);
       };
 
@@ -304,7 +304,7 @@
           `<div class="panel-item"><span class="dot"></span><span>${escapeHtml(user)}</span></div>`
         ).join('');
       } else {
-        usersPanel.innerHTML = '<div class="empty-state">No users online</div>';
+        usersPanel.innerHTML = '<div class="empty-state">Không có người dùng trực tuyến</div>';
       }
 
       // Update groups panel
@@ -314,11 +314,11 @@
           `<div class="panel-item">
             <span class="group-badge">${escapeHtml(group.name.charAt(0).toUpperCase())}</span>
             <span>${escapeHtml(group.name)}</span>
-            <span class="members">${group.memberCount} members</span>
+            <span class="members">${group.memberCount} thành viên</span>
           </div>`
         ).join('');
       } else {
-        groupsPanel.innerHTML = '<div class="empty-state">No active groups</div>';
+        groupsPanel.innerHTML = '<div class="empty-state">Không có nhóm hoạt động</div>';
       }
     }
 
@@ -339,7 +339,7 @@
     function renderLogs(logs) {
       const logsContent = document.getElementById('logsContent');
       if (!logs || logs.length === 0) {
-        logsContent.innerHTML = '<div class="empty-state">No activity yet</div>';
+        logsContent.innerHTML = '<div class="empty-state">Chưa có hoạt động nào</div>';
         return;
       }
       logsContent.innerHTML = '';

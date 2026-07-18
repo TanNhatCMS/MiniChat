@@ -176,6 +176,16 @@ function getUserGroups(username: string): string[] {
   return userGroups;
 }
 
+function getGroupMembers(username: string): Record<string, string[]> {
+  const result: Record<string, string[]> = {};
+  groups.forEach((data: GroupData, name: string) => {
+    if (data.members.has(username)) {
+      result[name] = Array.from(data.members);
+    }
+  });
+  return result;
+}
+
 // HTTP server for dashboard
 // Protected by DASHBOARD_PASSWORD when set. If unset, open access (dev mode).
 const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
@@ -309,6 +319,7 @@ wss.on('connection', (ws: WebSocket) => {
               users: Array.from(users.keys()).filter((u: string) => u !== trimmedUsername),
               groups: getAllGroupNames(),
               myGroups: getUserGroups(trimmedUsername),
+              groupMembers: getGroupMembers(trimmedUsername),
             });
           } else {
             // Reject username change on same socket
@@ -336,6 +347,7 @@ wss.on('connection', (ws: WebSocket) => {
           users: Array.from(users.keys()).filter((u: string) => u !== trimmedUsername),
           groups: getAllGroupNames(),
           myGroups: getUserGroups(trimmedUsername),
+          groupMembers: getGroupMembers(trimmedUsername),
         });
 
         // Broadcast to others that user joined
@@ -367,6 +379,7 @@ wss.on('connection', (ws: WebSocket) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
+            groupMembers: getGroupMembers(userName),
           });
         });
 
@@ -399,6 +412,7 @@ wss.on('connection', (ws: WebSocket) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
+            groupMembers: getGroupMembers(userName),
           });
         });
 
@@ -432,6 +446,7 @@ wss.on('connection', (ws: WebSocket) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
+            groupMembers: getGroupMembers(userName),
           });
         });
 
@@ -579,6 +594,7 @@ wss.on('connection', (ws: WebSocket) => {
         sendToWs(userWs, 'groups-updated', {
           groups: getAllGroupNames(),
           myGroups: getUserGroups(userName),
+          groupMembers: getGroupMembers(userName),
         });
       });
 

@@ -33,13 +33,20 @@ export default function Home() {
   const [newGroupName, setNewGroupName] = useState<string>('');
   const [loginError, setLoginError] = useState<string>('');
   const [mobilePanel, setMobilePanel] = useState<string | null>(null);
+  const [unreadMessages, setUnreadMessages] = useState<Record<string, number>>({});
+  const [groupMembers, setGroupMembers] = useState<Record<string, string[]>>({});
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const usernameRef = useRef<string>('');
+  const activeChatRef = useRef<ActiveChat>(activeChat);
 
   useEffect(() => {
     usernameRef.current = username;
   }, [username]);
+
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
 
 
   // Auto-scroll to bottom on new messages
@@ -66,8 +73,11 @@ export default function Home() {
         if (payload.myGroups) {
           setMyGroups(payload.myGroups);
         }
+        if (payload.groupMembers) {
+          setGroupMembers(payload.groupMembers);
+        }
       } else {
-        setLoginError(payload.message || 'Registration failed');
+        setLoginError(payload.message || 'Đăng ký thất bại');
         setLoggedIn(false);
         disconnectWs();
       }
@@ -85,6 +95,37 @@ export default function Home() {
         isSent: payload.sender === usernameRef.current,
       };
       setMessages((prev) => [...prev, msg]);
+
+      // Increment unread count when not viewing the relevant chat
+      if (payload.sender !== usernameRef.current) {
+        const current = activeChatRef.current;
+
+        if (payload.type === 'private') {
+          const isViewingThisChat = current.type === 'user' && current.name === payload.sender;
+          if (!isViewingThisChat) {
+            setUnreadMessages((prev) => ({
+              ...prev,
+              [`user:${payload.sender}`]: (prev[`user:${payload.sender}`] || 0) + 1,
+            }));
+          }
+        } else if (payload.type === 'group' && payload.group) {
+          const isViewingThisGroup = current.type === 'group' && current.name === payload.group;
+          if (!isViewingThisGroup) {
+            setUnreadMessages((prev) => ({
+              ...prev,
+              [`group:${payload.group}`]: (prev[`group:${payload.group}`] || 0) + 1,
+            }));
+          }
+        } else if (payload.type === 'broadcast') {
+          const isViewingBroadcast = current.type === 'broadcast';
+          if (!isViewingBroadcast) {
+            setUnreadMessages((prev) => ({
+              ...prev,
+              ['broadcast']: (prev['broadcast'] || 0) + 1,
+            }));
+          }
+        }
+      }
     }));
 
     unsubs.push(onMessage('user-joined', (payload) => {
@@ -95,7 +136,7 @@ export default function Home() {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
-        text: `${payload.username} joined the chat`,
+        text: `${payload.username} đã tham gia trò chuyện`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     }));
@@ -106,7 +147,7 @@ export default function Home() {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
-        text: `${payload.username} left the chat`,
+        text: `${payload.username} đã rời khỏi trò chuyện`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     }));
@@ -118,13 +159,16 @@ export default function Home() {
       if (payload.myGroups) {
         setMyGroups(payload.myGroups);
       }
+      if (payload.groupMembers) {
+        setGroupMembers(payload.groupMembers);
+      }
     }));
 
     unsubs.push(onMessage('group-member-joined', (payload) => {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
-        text: `${payload.username} joined group "${payload.group}"`,
+        text: `${payload.username} đã tham gia nhóm "${payload.group}"`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     }));
@@ -133,7 +177,7 @@ export default function Home() {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
-        text: `${payload.username} left group "${payload.group}"`,
+        text: `${payload.username} đã rời nhóm "${payload.group}"`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     }));
@@ -142,7 +186,7 @@ export default function Home() {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
-        text: `Error: ${payload.message}`,
+        text: `Lỗi: ${payload.message}`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
     }));
@@ -258,6 +302,29 @@ export default function Home() {
     }
   };
 
+  // Get last message for a specific chat (for sidebar preview)
+  const getLastMessage = (type: string, name: string): string => {
+    let relevantMessages: ChatMessage[];
+    if (type === 'broadcast') {
+      relevantMessages = messages.filter((m) => m.type === 'broadcast');
+    } else if (type === 'group') {
+      relevantMessages = messages.filter((m) => m.type === 'group' && m.group === name);
+    } else {
+      relevantMessages = messages.filter((m) =>
+        m.type === 'private' && (
+          (m.sender === name && m.target === username) ||
+          (m.sender === username && m.target === name) ||
+          (m.isSent && m.target === name)
+        )
+      );
+    }
+    if (relevantMessages.length === 0) return 'Chưa có tin nhắn';
+    const last = relevantMessages[relevantMessages.length - 1];
+    const prefix = last.isSent ? 'Bạn: ' : (last.sender ? `${last.sender}: ` : '');
+    const text = `${prefix}${last.text}`;
+    return text.length > 30 ? text.slice(0, 30) + '...' : text;
+  };
+
   // Filter messages based on active chat
   const filteredMessages = messages.filter((msg) => {
     if (msg.type === 'system') return true;
@@ -283,17 +350,17 @@ export default function Home() {
       <div className="login-container">
         <div className="login-box">
           <h1>MiniChat</h1>
-          <p>Enter your username to join the chat</p>
+          <p>Nhập tên người dùng để tham gia trò chuyện</p>
           {loginError && <p className="login-error">{loginError}</p>}
           <form onSubmit={handleLogin}>
             <input
               type="text"
-              placeholder="Username"
+              placeholder="Tên người dùng"
               value={username}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
               autoFocus
             />
-            <button type="submit">Join Chat</button>
+            <button type="submit">Tham gia</button>
           </form>
         </div>
       </div>
@@ -309,10 +376,10 @@ export default function Home() {
       {/* Mobile Navigation */}
       <div className="mobile-nav">
         <button onClick={() => setMobilePanel(mobilePanel === 'left' ? null : 'left')}>
-          ☰ Channels
+          ☰ Kênh
         </button>
         <button onClick={() => setMobilePanel(mobilePanel === 'right' ? null : 'right')}>
-          ⚙ Actions
+          ⚙ Thao tác
         </button>
       </div>
       {mobilePanel && (
@@ -325,32 +392,75 @@ export default function Home() {
 
         {/* Broadcast */}
         <div className="sidebar-section">
-          <h3>Channels</h3>
+          <h3>Kênh</h3>
           <button
-            className={`group-item ${activeChat.type === 'broadcast' ? 'active' : ''}`}
-            onClick={() => setActiveChat({ type: 'broadcast', name: 'Broadcast' })}
+            className={`chat-item ${activeChat.type === 'broadcast' ? 'active' : ''}`}
+            onClick={() => {
+              setActiveChat({ type: 'broadcast', name: 'Broadcast' });
+              setUnreadMessages((prev) => {
+                const next = { ...prev };
+                delete next['broadcast'];
+                return next;
+              });
+            }}
           >
-            <div className="broadcast-icon">📢</div>
-            <span>Broadcast</span>
+            <div className="chat-item-avatar broadcast-avatar">📢</div>
+            <div className="chat-item-content">
+              <div className="chat-item-header">
+                <span className="chat-item-name">Phát chung</span>
+                {unreadMessages['broadcast'] && (
+                  <span className="unread-badge">{unreadMessages['broadcast']}</span>
+                )}
+              </div>
+              <div className="chat-item-preview">{getLastMessage('broadcast', 'Broadcast')}</div>
+            </div>
           </button>
         </div>
 
         {/* My Groups */}
         <div className="sidebar-section">
-          <h3>My Groups</h3>
+          <h3>Nhóm của tôi</h3>
           {myGroups.map((group: string) => (
             <button
               key={group}
-              className={`group-item ${activeChat.type === 'group' && activeChat.name === group ? 'active' : ''}`}
-              onClick={() => setActiveChat({ type: 'group', name: group })}
+              className={`chat-item ${activeChat.type === 'group' && activeChat.name === group ? 'active' : ''}`}
+              onClick={() => {
+                setActiveChat({ type: 'group', name: group });
+                setUnreadMessages((prev) => {
+                  const next = { ...prev };
+                  delete next[`group:${group}`];
+                  return next;
+                });
+              }}
             >
-              <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
-              <span>{group}</span>
+              <div className="chat-item-avatar-group">
+                {(groupMembers[group] || []).slice(0, 3).map((member, idx) => (
+                  <div
+                    key={member}
+                    className="group-member-avatar"
+                    style={{ zIndex: 3 - idx }}
+                  >
+                    {member.charAt(0).toUpperCase()}
+                  </div>
+                ))}
+                {(groupMembers[group] || []).length === 0 && (
+                  <div className="group-member-avatar">{group.charAt(0).toUpperCase()}</div>
+                )}
+              </div>
+              <div className="chat-item-content">
+                <div className="chat-item-header">
+                  <span className="chat-item-name">{group}</span>
+                  {unreadMessages[`group:${group}`] && (
+                    <span className="unread-badge">{unreadMessages[`group:${group}`]}</span>
+                  )}
+                </div>
+                <div className="chat-item-preview">{getLastMessage('group', group)}</div>
+              </div>
             </button>
           ))}
           {myGroups.length === 0 && (
             <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              No groups yet
+              Chưa có nhóm nào
             </div>
           )}
         </div>
@@ -358,20 +468,38 @@ export default function Home() {
 
         {/* Online Users */}
         <div className="sidebar-section">
-          <h3>Online Users ({onlineUsers.length})</h3>
+          <h3>Đang trực tuyến ({onlineUsers.length})</h3>
           {onlineUsers.map((user: string) => (
             <button
               key={user}
-              className={`user-item ${activeChat.type === 'user' && activeChat.name === user ? 'active' : ''}`}
-              onClick={() => setActiveChat({ type: 'user', name: user })}
+              className={`chat-item ${activeChat.type === 'user' && activeChat.name === user ? 'active' : ''}`}
+              onClick={() => {
+                setActiveChat({ type: 'user', name: user });
+                setUnreadMessages((prev) => {
+                  const next = { ...prev };
+                  delete next[`user:${user}`];
+                  return next;
+                });
+              }}
             >
-              <span className="online-dot"></span>
-              <span>{user}</span>
+              <div className="chat-item-avatar user-avatar">
+                {user.charAt(0).toUpperCase()}
+                <span className="online-indicator"></span>
+              </div>
+              <div className="chat-item-content">
+                <div className="chat-item-header">
+                  <span className="chat-item-name">{user}</span>
+                  {unreadMessages[`user:${user}`] && (
+                    <span className="unread-badge">{unreadMessages[`user:${user}`]}</span>
+                  )}
+                </div>
+                <div className="chat-item-preview">{getLastMessage('user', user)}</div>
+              </div>
             </button>
           ))}
           {onlineUsers.length === 0 && (
             <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
-              No other users online
+              Không có người dùng khác trực tuyến
             </div>
           )}
         </div>
@@ -387,8 +515,8 @@ export default function Home() {
         <div className="messages-container">
           {filteredMessages.length === 0 && (
             <div className="welcome-screen">
-              <h2>Welcome, {username}!</h2>
-              <p>Start a conversation by sending a message</p>
+              <h2>Chào mừng, {username}!</h2>
+              <p>Bắt đầu cuộc trò chuyện bằng cách gửi tin nhắn</p>
             </div>
           )}
           {filteredMessages.map((msg: ChatMessage) => (
@@ -409,44 +537,44 @@ export default function Home() {
         <form className="message-input-container" onSubmit={handleSendMessage}>
           <input
             type="text"
-            placeholder={`Message ${activeChat.name}...`}
+            placeholder={`Nhắn tin tới ${activeChat.name}...`}
             value={inputMessage}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
             autoFocus
           />
-          <button type="submit">Send</button>
+          <button type="submit">Gửi</button>
         </form>
       </div>
 
 
       {/* Right Sidebar */}
       <div className={`sidebar-right${mobilePanel === 'right' ? ' mobile-open' : ''}`}>
-        <div className="sidebar-header">Actions</div>
+        <div className="sidebar-header">Thao tác</div>
 
         <div className="action-buttons">
           <button className="btn-primary" onClick={() => setShowCreateGroup(true)}>
-            + Create Group
+            + Tạo nhóm
           </button>
           <button
             className="btn-secondary"
             onClick={() => setActiveChat({ type: 'broadcast', name: 'Broadcast' })}
           >
-            📢 Broadcast
+            📢 Phát chung
           </button>
           <button className="btn-danger" onClick={handleLogout}>
-            Logout
+            Đăng xuất
           </button>
         </div>
 
         {/* Available Groups to Join */}
         {availableGroups.length > 0 && (
           <div className="sidebar-section">
-            <h3>Available Groups</h3>
+            <h3>Nhóm có thể tham gia</h3>
             {availableGroups.map((group: string) => (
               <button key={group} className="group-item" onClick={() => handleJoinGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--accent)' }}>Join</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--accent)' }}>Tham gia</span>
               </button>
             ))}
           </div>
@@ -455,12 +583,12 @@ export default function Home() {
         {/* My Groups to Leave */}
         {myGroups.length > 0 && (
           <div className="sidebar-section">
-            <h3>Leave Groups</h3>
+            <h3>Rời nhóm</h3>
             {myGroups.map((group: string) => (
               <button key={group} className="group-item" onClick={() => handleLeaveGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--danger)' }}>Leave</span>
+                <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--danger)' }}>Rời</span>
               </button>
             ))}
           </div>
@@ -471,18 +599,18 @@ export default function Home() {
       {showCreateGroup && (
         <div className="modal-overlay" onClick={() => setShowCreateGroup(false)}>
           <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
-            <h2>Create New Group</h2>
+            <h2>Tạo nhóm mới</h2>
             <input
               type="text"
-              placeholder="Group name"
+              placeholder="Tên nhóm"
               value={newGroupName}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGroupName(e.target.value)}
               onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleCreateGroup(); }}
               autoFocus
             />
             <div className="modal-buttons">
-              <button className="btn-secondary" onClick={() => setShowCreateGroup(false)}>Cancel</button>
-              <button className="btn-primary" onClick={handleCreateGroup}>Create</button>
+              <button className="btn-secondary" onClick={() => setShowCreateGroup(false)}>Hủy</button>
+              <button className="btn-primary" onClick={handleCreateGroup}>Tạo</button>
             </div>
           </div>
         </div>
