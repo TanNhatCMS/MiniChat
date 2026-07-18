@@ -6,17 +6,17 @@ A full-featured real-time chat application built with **Node.js WebSocket server
 
 ### Server
 - WebSocket-based real-time communication using `ws` library
-- User registration and authentication
-- Broadcast messaging to all connected users
+- Username-based access and registration
+- Broadcast messaging to all other connected users
 - Private messaging between individual users
 - Group management (create, join, leave)
-- Group messaging to all group members
+- Group messaging to other group members
 - Admin dashboard with real-time statistics
 - Activity logging and monitoring
 - REST API endpoint for stats (`/api/stats`)
 
 ### Client
-- Modern Next.js 14 application
+- Modern Next.js 16 application
 - Native WebSocket API (no Socket.IO dependency)
 - Dark theme responsive UI with 3-panel layout
 - Real-time message delivery
@@ -28,7 +28,7 @@ A full-featured real-time chat application built with **Node.js WebSocket server
 
 ## Architecture
 
-```
+```text
 ┌─────────────────┐         WebSocket          ┌─────────────────┐
 │   Next.js App   │ ◄─────────────────────────► │  Node.js Server │
 │   (Port 3000)   │                             │   (Port 3001)   │
@@ -157,9 +157,11 @@ The dashboard provides real-time monitoring of:
 ```bash
 # Custom server port
 PORT=8080 npm start
+```
 
+```bash
 # Custom WebSocket URL for client (in .env.local)
-NEXT_PUBLIC_WS_URL=ws://your-server:3001
+NEXT_PUBLIC_WS_URL=ws://your-server:8080
 ```
 
 ## Testing
@@ -186,17 +188,21 @@ npm install -g wscat
 
 # Connect to server
 wscat -c ws://localhost:3001
+```
 
-# Send registration
+Once connected, send messages as JSON:
+
+```json
 {"type":"register","payload":{"username":"testuser"}}
+```
 
-# Send broadcast
+```json
 {"type":"broadcast-message","payload":{"message":"Hello everyone!"}}
 ```
 
 ## Project Structure
 
-```
+```text
 MiniChat/
 ├── server/
 │   ├── package.json        # Server dependencies

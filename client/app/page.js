@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { connectWs, disconnectWs, sendMessage, onMessage } from '../lib/socket';
+import { connectWs, disconnectWs, sendMessage, onMessage, isConnected } from '../lib/socket';
 
 export default function Home() {
   const [username, setUsername] = useState('');
@@ -15,6 +15,7 @@ export default function Home() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [mobilePanel, setMobilePanel] = useState(null); // 'left' | 'right' | null
 
   const messagesEndRef = useRef(null);
   const usernameRef = useRef('');
@@ -127,6 +128,13 @@ export default function Home() {
       }]);
     }));
 
+    // Re-register on reconnect to restore session
+    unsubs.push(onMessage('_connected', () => {
+      if (usernameRef.current) {
+        sendMessage('register', { username: usernameRef.current });
+      }
+    }));
+
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
@@ -137,16 +145,17 @@ export default function Home() {
     if (!username.trim()) return;
     setLoginError('');
     setLoggedIn(true);
-    connectWs();
-    // Wait for connection before registering
-    const unsub = onMessage('_connected', () => {
+
+    // If already connected, send register immediately; otherwise connect and register on _connected
+    if (isConnected()) {
       sendMessage('register', { username: username.trim() });
-      unsub();
-    });
-    // If already connected, send immediately
-    setTimeout(() => {
-      sendMessage('register', { username: username.trim() });
-    }, 500);
+    } else {
+      connectWs();
+      const unsub = onMessage('_connected', () => {
+        sendMessage('register', { username: username.trim() });
+        unsub();
+      });
+    }
   };
 
   const handleLogout = () => {
@@ -162,45 +171,51 @@ export default function Home() {
   const handleSendMessage = (e) => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
+    if (!isConnected()) return;
 
     const text = inputMessage.trim();
-    setInputMessage('');
 
     if (activeChat.type === 'broadcast') {
-      sendMessage('broadcast-message', { message: text });
-      // Add to own messages
-      setMessages((prev) => [...prev, {
-        id: Date.now() + Math.random(),
-        sender: username,
-        text,
-        type: 'broadcast',
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSent: true,
-      }]);
+      const sent = sendMessage('broadcast-message', { message: text });
+      if (sent) {
+        setInputMessage('');
+        setMessages((prev) => [...prev, {
+          id: Date.now() + Math.random(),
+          sender: username,
+          text,
+          type: 'broadcast',
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isSent: true,
+        }]);
+      }
     } else if (activeChat.type === 'group') {
-      sendMessage('group-message', { group: activeChat.name, message: text });
-      // Add to own messages
-      setMessages((prev) => [...prev, {
-        id: Date.now() + Math.random(),
-        sender: username,
-        text,
-        type: 'group',
-        group: activeChat.name,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSent: true,
-      }]);
+      const sent = sendMessage('group-message', { group: activeChat.name, message: text });
+      if (sent) {
+        setInputMessage('');
+        setMessages((prev) => [...prev, {
+          id: Date.now() + Math.random(),
+          sender: username,
+          text,
+          type: 'group',
+          group: activeChat.name,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isSent: true,
+        }]);
+      }
     } else if (activeChat.type === 'user') {
-      sendMessage('private-message', { target: activeChat.name, message: text });
-      // Add to own messages
-      setMessages((prev) => [...prev, {
-        id: Date.now() + Math.random(),
-        sender: username,
-        text,
-        type: 'private',
-        target: activeChat.name,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        isSent: true,
-      }]);
+      const sent = sendMessage('private-message', { target: activeChat.name, message: text });
+      if (sent) {
+        setInputMessage('');
+        setMessages((prev) => [...prev, {
+          id: Date.now() + Math.random(),
+          sender: username,
+          text,
+          type: 'private',
+          target: activeChat.name,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          isSent: true,
+        }]);
+      }
     }
   };
 
@@ -269,34 +284,47 @@ export default function Home() {
 
   return (
     <div className="chat-container">
+      {/* Mobile Navigation */}
+      <div className="mobile-nav">
+        <button onClick={() => setMobilePanel(mobilePanel === 'left' ? null : 'left')}>
+          ☰ Channels
+        </button>
+        <button onClick={() => setMobilePanel(mobilePanel === 'right' ? null : 'right')}>
+          ⚙ Actions
+        </button>
+      </div>
+      {mobilePanel && (
+        <div className="mobile-overlay" onClick={() => setMobilePanel(null)} />
+      )}
+
       {/* Left Sidebar */}
-      <div className="sidebar-left">
+      <div className={`sidebar-left${mobilePanel === 'left' ? ' mobile-open' : ''}`}>
         <div className="sidebar-header">MiniChat</div>
 
         {/* Broadcast */}
         <div className="sidebar-section">
           <h3>Channels</h3>
-          <div
+          <button
             className={`group-item ${activeChat.type === 'broadcast' ? 'active' : ''}`}
             onClick={() => setActiveChat({ type: 'broadcast', name: 'Broadcast' })}
           >
             <div className="broadcast-icon">📢</div>
             <span>Broadcast</span>
-          </div>
+          </button>
         </div>
 
         {/* My Groups */}
         <div className="sidebar-section">
           <h3>My Groups</h3>
           {myGroups.map((group) => (
-            <div
+            <button
               key={group}
               className={`group-item ${activeChat.type === 'group' && activeChat.name === group ? 'active' : ''}`}
               onClick={() => setActiveChat({ type: 'group', name: group })}
             >
               <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
               <span>{group}</span>
-            </div>
+            </button>
           ))}
           {myGroups.length === 0 && (
             <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -309,14 +337,14 @@ export default function Home() {
         <div className="sidebar-section">
           <h3>Online Users ({onlineUsers.length})</h3>
           {onlineUsers.map((user) => (
-            <div
+            <button
               key={user}
               className={`user-item ${activeChat.type === 'user' && activeChat.name === user ? 'active' : ''}`}
               onClick={() => setActiveChat({ type: 'user', name: user })}
             >
               <span className="online-dot"></span>
               <span>{user}</span>
-            </div>
+            </button>
           ))}
           {onlineUsers.length === 0 && (
             <div style={{ padding: '8px 16px', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
@@ -368,7 +396,7 @@ export default function Home() {
       </div>
 
       {/* Right Sidebar */}
-      <div className="sidebar-right">
+      <div className={`sidebar-right${mobilePanel === 'right' ? ' mobile-open' : ''}`}>
         <div className="sidebar-header">Actions</div>
 
         <div className="action-buttons">
@@ -391,11 +419,11 @@ export default function Home() {
           <div className="sidebar-section">
             <h3>Available Groups</h3>
             {availableGroups.map((group) => (
-              <div key={group} className="group-item" onClick={() => handleJoinGroup(group)}>
+              <button key={group} className="group-item" onClick={() => handleJoinGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--accent)' }}>Join</span>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -405,11 +433,11 @@ export default function Home() {
           <div className="sidebar-section">
             <h3>Leave Groups</h3>
             {myGroups.map((group) => (
-              <div key={group} className="group-item" onClick={() => handleLeaveGroup(group)}>
+              <button key={group} className="group-item" onClick={() => handleLeaveGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
                 <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--danger)' }}>Leave</span>
-              </div>
+              </button>
             ))}
           </div>
         )}

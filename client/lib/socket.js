@@ -93,8 +93,10 @@ export function disconnectWs() {
 export function sendMessage(type, payload) {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type, payload }));
+    return true;
   } else {
     console.warn('[MiniChat] Cannot send message, WebSocket not connected');
+    return false;
   }
 }
 

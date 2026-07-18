@@ -106,6 +106,7 @@ function getUserGroups(username) {
 }
 
 // HTTP server for dashboard
+// NOTE: Dashboard endpoints are intentionally open (no auth) for development/learning purposes.
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/dashboard') {
     const dashboardPath = path.join(__dirname, 'dashboard.html');
@@ -143,10 +144,22 @@ wss.on('connection', (ws) => {
       return;
     }
 
-    const { type, payload } = message;
+    // Validate message schema
+    if (!message || typeof message !== 'object' || typeof message.type !== 'string') {
+      sendToWs(ws, 'error', { message: 'Invalid message schema: must have a string "type" field' });
+      return;
+    }
+
+    const { type, payload: rawPayload } = message;
+    const payload = rawPayload || {};
 
     switch (type) {
       case 'register': {
+        // Prevent re-registration on already registered socket
+        if (wsToUser.has(ws)) {
+          sendToWs(ws, 'register-response', { success: false, message: 'Already registered on this connection' });
+          return;
+        }
         const { username } = payload;
         if (!username || username.trim().length === 0) {
           sendToWs(ws, 'register-response', { success: false, message: 'Username is required' });
@@ -198,11 +211,6 @@ wss.on('connection', (ws) => {
 
         groups.set(groupName, { creator: username, members: new Set([username]) });
 
-        // Broadcast updated groups to all
-        broadcastToUsers('groups-updated', {
-          groups: getAllGroupNames(),
-          myGroups: null, // Each user needs their own myGroups
-        });
         // Send specific myGroups to each user
         users.forEach((userWs, userName) => {
           sendToWs(userWs, 'groups-updated', {
@@ -327,7 +335,7 @@ wss.on('connection', (ws) => {
           sender: username,
           message: msgText,
           type: 'private',
-          target: username,
+          target,
         });
 
         addLog('private-message', `${username} -> ${target}`);
