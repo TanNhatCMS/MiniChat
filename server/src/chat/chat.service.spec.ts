@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { ChatService } from './chat.service';
 import { ChatStore } from '../shared/stores/chat.store';
+import { ServerMonitorService } from '../shared/server-monitor.service';
 
 function createMockSocket(id = 'socket1') {
   return {
@@ -22,14 +23,28 @@ function createMockServer() {
   } as any;
 }
 
+function createMockServerMonitor() {
+  return {
+    setServer: vi.fn(),
+    emitStatusNow: vi.fn(),
+    getStatus: vi.fn(),
+    startBroadcasting: vi.fn(),
+    stopBroadcasting: vi.fn(),
+    onModuleInit: vi.fn(),
+    onModuleDestroy: vi.fn(),
+  } as unknown as ServerMonitorService;
+}
+
 describe('ChatService', () => {
   let service: ChatService;
   let store: ChatStore;
   let mockServer: ReturnType<typeof createMockServer>;
+  let mockServerMonitor: ServerMonitorService;
 
   beforeEach(() => {
     store = new ChatStore();
-    service = new ChatService(store);
+    mockServerMonitor = createMockServerMonitor();
+    service = new ChatService(store, mockServerMonitor);
     mockServer = createMockServer();
     service.setServer(mockServer);
   });

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import * as fc from 'fast-check';
 import { ChatService } from './chat.service';
 import { ChatStore } from '../shared/stores/chat.store';
+import { ServerMonitorService } from '../shared/server-monitor.service';
 
 function createMockSocket(id: string) {
   return {
@@ -23,6 +24,18 @@ function createMockServer() {
   } as any;
 }
 
+function createMockServerMonitor() {
+  return {
+    setServer: vi.fn(),
+    emitStatusNow: vi.fn(),
+    getStatus: vi.fn(),
+    startBroadcasting: vi.fn(),
+    stopBroadcasting: vi.fn(),
+    onModuleInit: vi.fn(),
+    onModuleDestroy: vi.fn(),
+  } as unknown as ServerMonitorService;
+}
+
 // Generator for valid usernames (1-20 chars after trim, non-empty after trim)
 const validUsernameArb = fc
   .string({ minLength: 1, maxLength: 20 })
@@ -35,7 +48,7 @@ describe('ChatService - Property-Based Tests', () => {
 
   beforeEach(() => {
     store = new ChatStore();
-    service = new ChatService(store);
+    service = new ChatService(store, createMockServerMonitor());
     mockServer = createMockServer();
     service.setServer(mockServer);
   });

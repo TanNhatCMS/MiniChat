@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { connectSocket, disconnectSocket, on, emit } from '../../lib/socket';
+import { ServerStatusPanel } from './ServerStatusPanel';
+import type { ServerStatus } from '../../lib/server-status.utils';
 
 interface DashboardStats {
   onlineUsers: number;
@@ -56,6 +58,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
   const [connected, setConnected] = useState(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus | null>(null);
 
   useEffect(() => {
     connectSocket();
@@ -91,6 +94,12 @@ export default function DashboardPage() {
           setError(payload.message);
           setAuthenticated(false);
         }
+      }),
+    );
+
+    unsubs.push(
+      on('server-status-update', (payload: ServerStatus) => {
+        setServerStatus(payload);
       }),
     );
 
@@ -160,6 +169,9 @@ export default function DashboardPage() {
         <StatCard label="Tổng kết nối" value={stats?.totalConnections ?? 0} />
         <StatCard label="Uptime" value={formatUptime(stats?.uptime ?? 0)} />
       </div>
+
+      {/* Server Status Panel */}
+      <ServerStatusPanel status={serverStatus} />
 
       {/* Panels Grid */}
       <div style={styles.panelsGrid}>

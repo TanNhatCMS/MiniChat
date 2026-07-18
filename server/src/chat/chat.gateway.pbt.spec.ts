@@ -3,6 +3,7 @@ import * as fc from 'fast-check';
 import { ChatGateway } from './chat.gateway';
 import { ChatService } from './chat.service';
 import { ChatStore } from '../shared/stores/chat.store';
+import { ServerMonitorService } from '../shared/server-monitor.service';
 
 function createMockSocket(id = 'socket1') {
   return {
@@ -13,6 +14,18 @@ function createMockSocket(id = 'socket1') {
     leave: vi.fn(),
     to: vi.fn().mockReturnThis(),
   } as any;
+}
+
+function createMockServerMonitor() {
+  return {
+    setServer: vi.fn(),
+    emitStatusNow: vi.fn(),
+    getStatus: vi.fn(),
+    startBroadcasting: vi.fn(),
+    stopBroadcasting: vi.fn(),
+    onModuleInit: vi.fn(),
+    onModuleDestroy: vi.fn(),
+  } as unknown as ServerMonitorService;
 }
 
 /**
@@ -29,7 +42,7 @@ describe('ChatGateway - Property Tests', () => {
 
   beforeEach(() => {
     const store = new ChatStore();
-    chatService = new ChatService(store);
+    chatService = new ChatService(store, createMockServerMonitor());
     gateway = new ChatGateway(chatService);
 
     // Mock all service methods
