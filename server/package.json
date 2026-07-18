@@ -19,21 +19,21 @@
     "@nestjs/websockets": "^10.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.7.5",
-    "ws": "^8.16.0"
+    "socket.io": "^4.7.5"
   },
   "devDependencies": {
     "@nestjs/testing": "^10.4.0",
+    "@swc/core": "^1.15.43",
     "@types/express": "^5.0.6",
     "@types/node": "^22.20.1",
     "@types/supertest": "^6.0.2",
-    "@types/ws": "^8.5.10",
     "fast-check": "^3.22.0",
     "nodemon": "^3.1.0",
     "socket.io-client": "^4.7.5",
     "supertest": "^7.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.0",
+    "unplugin-swc": "^1.5.9",
     "vitest": "^3.0.0"
   }
 }
