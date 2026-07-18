@@ -1,10 +1,14 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { ApiGuard } from './api.guard';
 import { ChatStore } from '../shared/stores/chat.store';
+import { ServerMonitorService } from '../shared/server-monitor.service';
 
 @Controller()
 export class ApiController {
-  constructor(private readonly store: ChatStore) {}
+  constructor(
+    private readonly store: ChatStore,
+    private readonly serverMonitor: ServerMonitorService,
+  ) {}
 
   @Get('/')
   healthCheck() {
@@ -24,5 +28,11 @@ export class ApiController {
   @UseGuards(ApiGuard)
   getLogs() {
     return { logs: this.store.activityLogs };
+  }
+
+  @Get('/api/server-status')
+  @UseGuards(ApiGuard)
+  getServerStatus() {
+    return this.serverMonitor.getStatus();
   }
 }

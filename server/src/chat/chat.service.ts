@@ -1,15 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { ChatStore } from '../shared/stores/chat.store';
+import { ServerMonitorService } from '../shared/server-monitor.service';
 
 @Injectable()
 export class ChatService {
   private server!: Server;
 
-  constructor(private readonly store: ChatStore) {}
+  constructor(
+    private readonly store: ChatStore,
+    private readonly serverMonitor: ServerMonitorService,
+  ) {}
 
   setServer(server: Server): void {
     this.server = server;
+    this.serverMonitor.setServer(server);
   }
 
   handleConnection(client: Socket): void {
@@ -301,6 +306,7 @@ export class ChatService {
     client.join('dashboard');
     client.emit('stats-update', this.store.getDashboardStats());
     client.emit('logs-history', { logs: this.store.activityLogs });
+    this.serverMonitor.emitStatusNow();
   }
 
   // --- Helper methods ---
