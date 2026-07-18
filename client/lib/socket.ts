@@ -1,17 +1,19 @@
 'use client';
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
+export type MessageHandler = (payload: any) => void;
 
-let ws = null;
-let reconnectTimeout = null;
-let shouldReconnect = true;
-const handlers = {};
+const WS_URL: string = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001';
 
-function _onopen() {
+let ws: WebSocket | null = null;
+let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+let shouldReconnect: boolean = true;
+const handlers: Record<string, Array<(payload: any) => void>> = {};
+
+function _onopen(): void {
   console.log('[MiniChat] WebSocket connected');
 }
 
-function _onclose() {
+function _onclose(): void {
   console.log('[MiniChat] WebSocket disconnected');
   ws = null;
   if (shouldReconnect) {
@@ -21,11 +23,11 @@ function _onclose() {
   }
 }
 
-function _onerror(err) {
+function _onerror(err: Event): void {
   console.error('[MiniChat] WebSocket error:', err);
 }
 
-function dispatch(data) {
+function dispatch(data: string): void {
   try {
     const message = JSON.parse(data);
     const { type, payload } = message;
@@ -37,7 +39,7 @@ function dispatch(data) {
   }
 }
 
-export function connectWs() {
+export function connectWs(): void {
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
     return;
   }
@@ -58,7 +60,7 @@ export function connectWs() {
     }
   };
 
-  ws.onmessage = (event) => {
+  ws.onmessage = (event: MessageEvent) => {
     dispatch(event.data);
   };
 
@@ -69,12 +71,12 @@ export function connectWs() {
     }
   };
 
-  ws.onerror = (err) => {
+  ws.onerror = (err: Event) => {
     _onerror(err);
   };
 }
 
-export function disconnectWs() {
+export function disconnectWs(): void {
   shouldReconnect = false;
   if (reconnectTimeout) {
     clearTimeout(reconnectTimeout);
@@ -90,7 +92,7 @@ export function disconnectWs() {
   }
 }
 
-export function sendMessage(type, payload) {
+export function sendMessage(type: string, payload: Record<string, unknown>): boolean {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type, payload }));
     return true;
@@ -100,7 +102,7 @@ export function sendMessage(type, payload) {
   }
 }
 
-export function onMessage(type, handler) {
+export function onMessage(type: string, handler: MessageHandler): () => void {
   if (!handlers[type]) {
     handlers[type] = [];
   }
@@ -115,6 +117,6 @@ export function onMessage(type, handler) {
   };
 }
 
-export function isConnected() {
+export function isConnected(): boolean {
   return ws !== null && ws.readyState === WebSocket.OPEN;
 }

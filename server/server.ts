@@ -1,18 +1,62 @@
-const http = require('http');
-const { WebSocketServer } = require('ws');
-const fs = require('fs');
-const path = require('path');
+import http from 'http';
+import { WebSocketServer, WebSocket } from 'ws';
+import fs from 'fs';
+import path from 'path';
 
-const PORT = process.env.PORT || 3001;
+const PORT: number = parseInt(process.env.PORT || '3001', 10);
+
+// Interfaces
+interface GroupData {
+  creator: string;
+  members: Set<string>;
+}
+
+interface Stats {
+  totalConnections: number;
+  totalMessages: number;
+  totalGroupMessages: number;
+  totalPrivateMessages: number;
+  totalBroadcasts: number;
+  serverStartTime: number;
+}
+
+interface ActivityLog {
+  timestamp: string;
+  action: string;
+  details: string;
+}
+
+interface IncomingMessage {
+  type: string;
+  payload?: Record<string, unknown>;
+}
+
+interface DashboardStats {
+  onlineUsers: number;
+  activeGroups: number;
+  totalMessages: number;
+  totalGroupMessages: number;
+  totalPrivateMessages: number;
+  totalBroadcasts: number;
+  totalConnections: number;
+  uptime: number;
+  users: string[];
+  groups: Array<{
+    name: string;
+    creator: string;
+    memberCount: number;
+    members: string[];
+  }>;
+}
 
 // Data stores
-const users = new Map(); // username -> ws
-const wsToUser = new Map(); // ws -> username
-const groups = new Map(); // name -> { creator, members: Set }
-const dashboardClients = new Set();
+const users: Map<string, WebSocket> = new Map(); // username -> ws
+const wsToUser: Map<WebSocket, string> = new Map(); // ws -> username
+const groups: Map<string, GroupData> = new Map(); // name -> { creator, members: Set }
+const dashboardClients: Set<WebSocket> = new Set();
 
 // Stats tracking
-const stats = {
+const stats: Stats = {
   totalConnections: 0,
   totalMessages: 0,
   totalGroupMessages: 0,
@@ -22,10 +66,10 @@ const stats = {
 };
 
 // Activity logs (max 100)
-const activityLogs = [];
+const activityLogs: ActivityLog[] = [];
 
-function addLog(action, details) {
-  const log = {
+function addLog(action: string, details: string): void {
+  const log: ActivityLog = {
     timestamp: new Date().toISOString(),
     action,
     details,
@@ -38,24 +82,24 @@ function addLog(action, details) {
 }
 
 // Helper functions
-function sendToWs(ws, type, payload) {
-  if (ws.readyState === ws.OPEN) {
+function sendToWs(ws: WebSocket, type: string, payload: unknown): void {
+  if (ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type, payload }));
   }
 }
 
-function broadcastToUsers(type, payload, excludeWs = null) {
-  users.forEach((ws) => {
+function broadcastToUsers(type: string, payload: unknown, excludeWs: WebSocket | null = null): void {
+  users.forEach((ws: WebSocket) => {
     if (ws !== excludeWs) {
       sendToWs(ws, type, payload);
     }
   });
 }
 
-function sendToGroup(groupName, type, payload, excludeWs = null) {
+function sendToGroup(groupName: string, type: string, payload: unknown, excludeWs: WebSocket | null = null): void {
   const group = groups.get(groupName);
   if (!group) return;
-  group.members.forEach((memberName) => {
+  group.members.forEach((memberName: string) => {
     const memberWs = users.get(memberName);
     if (memberWs && memberWs !== excludeWs) {
       sendToWs(memberWs, type, payload);
@@ -63,15 +107,15 @@ function sendToGroup(groupName, type, payload, excludeWs = null) {
   });
 }
 
-function broadcastToDashboard(message) {
-  dashboardClients.forEach((ws) => {
-    if (ws.readyState === ws.OPEN) {
+function broadcastToDashboard(message: { type: string; payload: unknown }): void {
+  dashboardClients.forEach((ws: WebSocket) => {
+    if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify(message));
     }
   });
 }
 
-function getDashboardStats() {
+function getDashboardStats(): DashboardStats {
   return {
     onlineUsers: users.size,
     activeGroups: groups.size,
@@ -91,13 +135,13 @@ function getDashboardStats() {
   };
 }
 
-function getAllGroupNames() {
+function getAllGroupNames(): string[] {
   return Array.from(groups.keys());
 }
 
-function getUserGroups(username) {
-  const userGroups = [];
-  groups.forEach((data, name) => {
+function getUserGroups(username: string): string[] {
+  const userGroups: string[] = [];
+  groups.forEach((data: GroupData, name: string) => {
     if (data.members.has(username)) {
       userGroups.push(name);
     }
@@ -107,10 +151,10 @@ function getUserGroups(username) {
 
 // HTTP server for dashboard
 // NOTE: Dashboard endpoints are intentionally open (no auth) for development/learning purposes.
-const server = http.createServer((req, res) => {
+const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/' || req.url === '/dashboard') {
     const dashboardPath = path.join(__dirname, 'dashboard.html');
-    fs.readFile(dashboardPath, 'utf8', (err, data) => {
+    fs.readFile(dashboardPath, 'utf8', (err: NodeJS.ErrnoException | null, data: string) => {
       if (err) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
         res.end('Error loading dashboard');
@@ -131,12 +175,12 @@ const server = http.createServer((req, res) => {
 // WebSocket server
 const wss = new WebSocketServer({ server });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws: WebSocket) => {
   stats.totalConnections++;
   addLog('connection', 'New WebSocket connection established');
 
-  ws.on('message', (data) => {
-    let message;
+  ws.on('message', (data: Buffer) => {
+    let message: IncomingMessage;
     try {
       message = JSON.parse(data.toString());
     } catch (e) {
@@ -151,7 +195,7 @@ wss.on('connection', (ws) => {
     }
 
     const { type, payload: rawPayload } = message;
-    const payload = rawPayload || {};
+    const payload: Record<string, unknown> = rawPayload || {};
 
     switch (type) {
       case 'register': {
@@ -160,7 +204,7 @@ wss.on('connection', (ws) => {
           sendToWs(ws, 'register-response', { success: false, message: 'Already registered on this connection' });
           return;
         }
-        const { username } = payload;
+        const username = payload.username as string | undefined;
         if (!username || username.trim().length === 0) {
           sendToWs(ws, 'register-response', { success: false, message: 'Username is required' });
           return;
@@ -182,7 +226,7 @@ wss.on('connection', (ws) => {
         sendToWs(ws, 'register-response', {
           success: true,
           username: trimmedUsername,
-          users: Array.from(users.keys()).filter(u => u !== trimmedUsername),
+          users: Array.from(users.keys()).filter((u: string) => u !== trimmedUsername),
           groups: getAllGroupNames(),
           myGroups: getUserGroups(trimmedUsername),
         });
@@ -198,7 +242,7 @@ wss.on('connection', (ws) => {
       case 'create-group': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { name } = payload;
+        const name = payload.name as string | undefined;
         if (!name || name.trim().length === 0) {
           sendToWs(ws, 'error', { message: 'Group name is required' });
           return;
@@ -212,7 +256,7 @@ wss.on('connection', (ws) => {
         groups.set(groupName, { creator: username, members: new Set([username]) });
 
         // Send specific myGroups to each user
-        users.forEach((userWs, userName) => {
+        users.forEach((userWs: WebSocket, userName: string) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
@@ -227,7 +271,7 @@ wss.on('connection', (ws) => {
       case 'join-group': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { name } = payload;
+        const name = payload.name as string;
         const group = groups.get(name);
         if (!group) {
           sendToWs(ws, 'error', { message: 'Group not found' });
@@ -244,7 +288,7 @@ wss.on('connection', (ws) => {
         sendToGroup(name, 'group-member-joined', { group: name, username });
 
         // Broadcast updated groups to all users
-        users.forEach((userWs, userName) => {
+        users.forEach((userWs: WebSocket, userName: string) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
@@ -259,7 +303,7 @@ wss.on('connection', (ws) => {
       case 'leave-group': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { name } = payload;
+        const name = payload.name as string;
         const group = groups.get(name);
         if (!group) {
           sendToWs(ws, 'error', { message: 'Group not found' });
@@ -277,7 +321,7 @@ wss.on('connection', (ws) => {
         }
 
         // Broadcast updated groups to all users
-        users.forEach((userWs, userName) => {
+        users.forEach((userWs: WebSocket, userName: string) => {
           sendToWs(userWs, 'groups-updated', {
             groups: getAllGroupNames(),
             myGroups: getUserGroups(userName),
@@ -292,7 +336,8 @@ wss.on('connection', (ws) => {
       case 'group-message': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { group: groupName, message: msgText } = payload;
+        const groupName = payload.group as string;
+        const msgText = payload.message as string;
         const group = groups.get(groupName);
         if (!group) {
           sendToWs(ws, 'error', { message: 'Group not found' });
@@ -321,7 +366,8 @@ wss.on('connection', (ws) => {
       case 'private-message': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { target, message: msgText } = payload;
+        const target = payload.target as string;
+        const msgText = payload.message as string;
         const targetWs = users.get(target);
         if (!targetWs) {
           sendToWs(ws, 'error', { message: 'User not found or offline' });
@@ -346,7 +392,7 @@ wss.on('connection', (ws) => {
       case 'broadcast-message': {
         const username = wsToUser.get(ws);
         if (!username) return;
-        const { message: msgText } = payload;
+        const msgText = payload.message as string;
 
         stats.totalMessages++;
         stats.totalBroadcasts++;
@@ -372,7 +418,7 @@ wss.on('connection', (ws) => {
       case 'get-users': {
         const username = wsToUser.get(ws);
         sendToWs(ws, 'users-list', {
-          users: Array.from(users.keys()).filter(u => u !== username),
+          users: Array.from(users.keys()).filter((u: string) => u !== username),
         });
         break;
       }
@@ -398,7 +444,7 @@ wss.on('connection', (ws) => {
     const username = wsToUser.get(ws);
     if (username) {
       // Remove from all groups
-      groups.forEach((group, groupName) => {
+      groups.forEach((group: GroupData, groupName: string) => {
         if (group.members.has(username)) {
           group.members.delete(username);
           sendToGroup(groupName, 'group-member-left', { group: groupName, username });
@@ -416,7 +462,7 @@ wss.on('connection', (ws) => {
       broadcastToUsers('user-left', { username });
 
       // Update groups for remaining users
-      users.forEach((userWs, userName) => {
+      users.forEach((userWs: WebSocket, userName: string) => {
         sendToWs(userWs, 'groups-updated', {
           groups: getAllGroupNames(),
           myGroups: getUserGroups(userName),
@@ -431,7 +477,7 @@ wss.on('connection', (ws) => {
     dashboardClients.delete(ws);
   });
 
-  ws.on('error', (err) => {
+  ws.on('error', (err: Error) => {
     console.error('[MiniChat Server] WebSocket error:', err.message);
   });
 });

@@ -1,28 +1,46 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { connectWs, disconnectWs, sendMessage, onMessage, isConnected } from '../lib/socket';
 
-export default function Home() {
-  const [username, setUsername] = useState('');
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [onlineUsers, setOnlineUsers] = useState([]);
-  const [groups, setGroups] = useState([]);
-  const [myGroups, setMyGroups] = useState([]);
-  const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [activeChat, setActiveChat] = useState({ type: 'broadcast', name: 'Broadcast' });
-  const [showCreateGroup, setShowCreateGroup] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [loginError, setLoginError] = useState('');
-  const [mobilePanel, setMobilePanel] = useState(null); // 'left' | 'right' | null
+interface ChatMessage {
+  id: number;
+  sender?: string;
+  text: string;
+  type: string;
+  group?: string | null;
+  target?: string | null;
+  time: string;
+  isSent?: boolean;
+}
 
-  const messagesEndRef = useRef(null);
-  const usernameRef = useRef('');
+interface ActiveChat {
+  type: string;
+  name: string;
+}
+
+export default function Home() {
+  const [username, setUsername] = useState<string>('');
+  const [loggedIn, setLoggedIn] = useState<boolean>(false);
+  const [onlineUsers, setOnlineUsers] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>([]);
+  const [myGroups, setMyGroups] = useState<string[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [inputMessage, setInputMessage] = useState<string>('');
+  const [activeChat, setActiveChat] = useState<ActiveChat>({ type: 'broadcast', name: 'Broadcast' });
+  const [showCreateGroup, setShowCreateGroup] = useState<boolean>(false);
+  const [newGroupName, setNewGroupName] = useState<string>('');
+  const [loginError, setLoginError] = useState<string>('');
+  const [mobilePanel, setMobilePanel] = useState<string | null>(null);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const usernameRef = useRef<string>('');
 
   useEffect(() => {
     usernameRef.current = username;
   }, [username]);
+
 
   // Auto-scroll to bottom on new messages
   useEffect(() => {
@@ -34,13 +52,13 @@ export default function Home() {
   useEffect(() => {
     if (!loggedIn) return;
 
-    const unsubs = [];
+    const unsubs: Array<() => void> = [];
 
     unsubs.push(onMessage('register-response', (payload) => {
       if (payload.success) {
         setLoginError('');
         if (payload.users) {
-          setOnlineUsers(payload.users.filter(u => u !== usernameRef.current));
+          setOnlineUsers(payload.users.filter((u: string) => u !== usernameRef.current));
         }
         if (payload.groups) {
           setGroups(payload.groups);
@@ -56,11 +74,11 @@ export default function Home() {
     }));
 
     unsubs.push(onMessage('receive-message', (payload) => {
-      const msg = {
+      const msg: ChatMessage = {
         id: Date.now() + Math.random(),
         sender: payload.sender,
         text: payload.message,
-        type: payload.type, // 'broadcast', 'group', 'private'
+        type: payload.type,
         group: payload.group || null,
         target: payload.target || null,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
@@ -82,8 +100,9 @@ export default function Home() {
       }]);
     }));
 
+
     unsubs.push(onMessage('user-left', (payload) => {
-      setOnlineUsers((prev) => prev.filter(u => u !== payload.username));
+      setOnlineUsers((prev) => prev.filter((u: string) => u !== payload.username));
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
@@ -140,7 +159,8 @@ export default function Home() {
     };
   }, [loggedIn]);
 
-  const handleLogin = (e) => {
+
+  const handleLogin = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
     if (!username.trim()) return;
     setLoginError('');
@@ -158,7 +178,7 @@ export default function Home() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = (): void => {
     disconnectWs();
     setLoggedIn(false);
     setMessages([]);
@@ -168,7 +188,7 @@ export default function Home() {
     setActiveChat({ type: 'broadcast', name: 'Broadcast' });
   };
 
-  const handleSendMessage = (e) => {
+  const handleSendMessage = (e: React.FormEvent<HTMLFormElement>): void => {
     e.preventDefault();
     if (!inputMessage.trim()) return;
     if (!isConnected()) return;
@@ -219,18 +239,19 @@ export default function Home() {
     }
   };
 
-  const handleCreateGroup = () => {
+
+  const handleCreateGroup = (): void => {
     if (!newGroupName.trim()) return;
     sendMessage('create-group', { name: newGroupName.trim() });
     setNewGroupName('');
     setShowCreateGroup(false);
   };
 
-  const handleJoinGroup = (groupName) => {
+  const handleJoinGroup = (groupName: string): void => {
     sendMessage('join-group', { name: groupName });
   };
 
-  const handleLeaveGroup = (groupName) => {
+  const handleLeaveGroup = (groupName: string): void => {
     sendMessage('leave-group', { name: groupName });
     if (activeChat.type === 'group' && activeChat.name === groupName) {
       setActiveChat({ type: 'broadcast', name: 'Broadcast' });
@@ -250,7 +271,7 @@ export default function Home() {
       return msg.type === 'private' && (
         (msg.sender === activeChat.name && msg.target === username) ||
         (msg.sender === username && msg.target === activeChat.name) ||
-        msg.isSent && msg.target === activeChat.name
+        (msg.isSent && msg.target === activeChat.name)
       );
     }
     return false;
@@ -269,7 +290,7 @@ export default function Home() {
               type="text"
               placeholder="Username"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
               autoFocus
             />
             <button type="submit">Join Chat</button>
@@ -280,7 +301,8 @@ export default function Home() {
   }
 
   // Available groups (not already joined)
-  const availableGroups = groups.filter(g => !myGroups.includes(g));
+  const availableGroups = groups.filter((g: string) => !myGroups.includes(g));
+
 
   return (
     <div className="chat-container">
@@ -316,7 +338,7 @@ export default function Home() {
         {/* My Groups */}
         <div className="sidebar-section">
           <h3>My Groups</h3>
-          {myGroups.map((group) => (
+          {myGroups.map((group: string) => (
             <button
               key={group}
               className={`group-item ${activeChat.type === 'group' && activeChat.name === group ? 'active' : ''}`}
@@ -333,10 +355,11 @@ export default function Home() {
           )}
         </div>
 
+
         {/* Online Users */}
         <div className="sidebar-section">
           <h3>Online Users ({onlineUsers.length})</h3>
-          {onlineUsers.map((user) => (
+          {onlineUsers.map((user: string) => (
             <button
               key={user}
               className={`user-item ${activeChat.type === 'user' && activeChat.name === user ? 'active' : ''}`}
@@ -368,7 +391,7 @@ export default function Home() {
               <p>Start a conversation by sending a message</p>
             </div>
           )}
-          {filteredMessages.map((msg) => (
+          {filteredMessages.map((msg: ChatMessage) => (
             <div
               key={msg.id}
               className={`message ${msg.type === 'system' ? 'system' : msg.isSent ? 'sent' : 'received'}`}
@@ -388,12 +411,13 @@ export default function Home() {
             type="text"
             placeholder={`Message ${activeChat.name}...`}
             value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setInputMessage(e.target.value)}
             autoFocus
           />
           <button type="submit">Send</button>
         </form>
       </div>
+
 
       {/* Right Sidebar */}
       <div className={`sidebar-right${mobilePanel === 'right' ? ' mobile-open' : ''}`}>
@@ -418,7 +442,7 @@ export default function Home() {
         {availableGroups.length > 0 && (
           <div className="sidebar-section">
             <h3>Available Groups</h3>
-            {availableGroups.map((group) => (
+            {availableGroups.map((group: string) => (
               <button key={group} className="group-item" onClick={() => handleJoinGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
@@ -432,7 +456,7 @@ export default function Home() {
         {myGroups.length > 0 && (
           <div className="sidebar-section">
             <h3>Leave Groups</h3>
-            {myGroups.map((group) => (
+            {myGroups.map((group: string) => (
               <button key={group} className="group-item" onClick={() => handleLeaveGroup(group)}>
                 <div className="group-icon">{group.charAt(0).toUpperCase()}</div>
                 <span>{group}</span>
@@ -446,14 +470,14 @@ export default function Home() {
       {/* Create Group Modal */}
       {showCreateGroup && (
         <div className="modal-overlay" onClick={() => setShowCreateGroup(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
+          <div className="modal" onClick={(e: React.MouseEvent) => e.stopPropagation()}>
             <h2>Create New Group</h2>
             <input
               type="text"
               placeholder="Group name"
               value={newGroupName}
-              onChange={(e) => setNewGroupName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleCreateGroup(); }}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewGroupName(e.target.value)}
+              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') handleCreateGroup(); }}
               autoFocus
             />
             <div className="modal-buttons">
