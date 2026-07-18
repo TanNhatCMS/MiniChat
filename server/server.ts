@@ -291,17 +291,32 @@ wss.on('connection', (ws: WebSocket) => {
 
     switch (type) {
       case 'register': {
-        // Prevent re-registration on already registered socket
-        if (wsToUser.has(ws)) {
-          sendToWs(ws, 'register-response', { success: false, message: 'Already registered on this connection' });
-          return;
-        }
         const username = payload.username as string | undefined;
         if (!username || username.trim().length === 0) {
           sendToWs(ws, 'register-response', { success: false, message: 'Username is required' });
           return;
         }
         const trimmedUsername = username.trim();
+
+        // If already registered on this socket
+        if (wsToUser.has(ws)) {
+          const existingUsername = wsToUser.get(ws)!;
+          if (existingUsername === trimmedUsername) {
+            // Idempotent: same username retry (e.g., after reconnect) - respond with success
+            sendToWs(ws, 'register-response', {
+              success: true,
+              username: trimmedUsername,
+              users: Array.from(users.keys()).filter((u: string) => u !== trimmedUsername),
+              groups: getAllGroupNames(),
+              myGroups: getUserGroups(trimmedUsername),
+            });
+          } else {
+            // Reject username change on same socket
+            sendToWs(ws, 'register-response', { success: false, message: 'Cannot change username on this connection' });
+          }
+          return;
+        }
+
         if (users.has(trimmedUsername)) {
           sendToWs(ws, 'register-response', { success: false, message: 'Username already taken' });
           return;
