@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MiniChat - Admin Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #e0e0e0;
+      min-height: 100vh;
+      padding: 24px;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 32px;
+    }
+    .header h1 {
+      font-size: 2rem;
+      color: #e94560;
+      margin-bottom: 4px;
+    }
+    .header p {
+      color: #a0a0c0;
+      font-size: 0.9rem;
+    }
+    .connection-status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 0.8rem;
+      margin-top: 8px;
+    }
+    .connected { background: rgba(76, 175, 80, 0.2); color: #4caf50; }
+    .disconnected { background: rgba(233, 69, 96, 0.2); color: #e94560; }
+
+    /* Stats Grid */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 16px;
+      margin-bottom: 32px;
+    }
+    .stat-card {
+      background: #16213e;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    .stat-card .stat-value {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #e94560;
+    }
+    .stat-card .stat-label {
+      font-size: 0.8rem;
+      color: #a0a0c0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-top: 4px;
+    }
+
+    /* Panels Grid */
+    .panels-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+    .panel {
+      background: #16213e;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .panel-header {
+      padding: 16px 20px;
+      background: #0f3460;
+      font-weight: 600;
+      font-size: 0.9rem;
+      border-bottom: 1px solid #2a2a5a;
+    }
+    .panel-content {
+      padding: 16px 20px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .panel-item {
+      padding: 10px 12px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: rgba(233, 69, 96, 0.05);
+      border: 1px solid #2a2a5a;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .panel-item .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #4caf50;
+    }
+    .panel-item .group-badge {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+      background: #e94560;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .panel-item .members {
+      margin-left: auto;
+      font-size: 0.8rem;
+      color: #a0a0c0;
+    }
+    .empty-state {
+      color: #6a6a8a;
+      text-align: center;
+      padding: 24px;
+      font-size: 0.9rem;
+    }
+
+    /* Activity Logs */
+    .logs-section {
+      background: #16213e;
+      border: 1px solid #2a2a5a;
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .logs-header {
+      padding: 16px 20px;
+      background: #0f3460;
+      font-weight: 600;
+      font-size: 0.9rem;
+      border-bottom: 1px solid #2a2a5a;
+    }
+    .logs-content {
+      max-height: 400px;
+      overflow-y: auto;
+      padding: 12px;
+    }
+    .log-entry {
+      padding: 8px 12px;
+      border-radius: 6px;
+      margin-bottom: 6px;
+      font-size: 0.85rem;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      border-left: 3px solid #2a2a5a;
+    }
+    .log-entry.register { border-left-color: #4caf50; }
+    .log-entry.disconnect { border-left-color: #e94560; }
+    .log-entry.create-group { border-left-color: #ffa726; }
+    .log-entry.join-group { border-left-color: #42a5f5; }
+    .log-entry.leave-group { border-left-color: #ab47bc; }
+    .log-entry.broadcast { border-left-color: #26c6da; }
+    .log-entry.group-message { border-left-color: #66bb6a; }
+    .log-entry.private-message { border-left-color: #ef5350; }
+    .log-time {
+      color: #6a6a8a;
+      font-size: 0.75rem;
+      white-space: nowrap;
+    }
+    .log-details {
+      color: #c0c0e0;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #2a2a5a; border-radius: 3px; }
+
+    @media (max-width: 768px) {
+      .panels-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>MiniChat Dashboard</h1>
+    <p>Real-time server monitoring</p>
+    <div id="connectionStatus" class="connection-status disconnected">Disconnected</div>
+  </div>
+
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="stat-value" id="statOnlineUsers">0</div>
+      <div class="stat-label">Online Users</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statActiveGroups">0</div>
+      <div class="stat-label">Active Groups</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTotalMessages">0</div>
+      <div class="stat-label">Total Messages</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statGroupMessages">0</div>
+      <div class="stat-label">Group Messages</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statPrivateMessages">0</div>
+      <div class="stat-label">Private Messages</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-value" id="statTotalConnections">0</div>
+      <div class="stat-label">Total Connections</div>
+    </div>
+  </div>
+
+  <div class="panels-grid">
+    <div class="panel">
+      <div class="panel-header">Online Users</div>
+      <div class="panel-content" id="usersPanel">
+        <div class="empty-state">No users online</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Active Groups</div>
+      <div class="panel-content" id="groupsPanel">
+        <div class="empty-state">No active groups</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="logs-section">
+    <div class="logs-header">Activity Logs</div>
+    <div class="logs-content" id="logsContent">
+      <div class="empty-state">No activity yet</div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let reconnectTimeout = null;
+
+    function connect() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}`;
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('connectionStatus').className = 'connection-status connected';
+        document.getElementById('connectionStatus').textContent = 'Connected';
+        ws.send(JSON.stringify({ type: 'subscribe-dashboard', payload: {} }));
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          handleMessage(message);
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('connectionStatus').className = 'connection-status disconnected';
+        document.getElementById('connectionStatus').textContent = 'Disconnected - Reconnecting...';
+        reconnectTimeout = setTimeout(connect, 3000);
+      };
+
+      ws.onerror = () => {
+        ws.close();
+      };
+    }
+
+    function handleMessage(message) {
+      switch (message.type) {
+        case 'stats-update':
+          updateStats(message.payload);
+          break;
+        case 'new-log':
+          addLogEntry(message.payload);
+          break;
+        case 'logs-history':
+          renderLogs(message.payload.logs);
+          break;
+      }
+    }
+
+    function updateStats(data) {
+      document.getElementById('statOnlineUsers').textContent = data.onlineUsers || 0;
+      document.getElementById('statActiveGroups').textContent = data.activeGroups || 0;
+      document.getElementById('statTotalMessages').textContent = data.totalMessages || 0;
+      document.getElementById('statGroupMessages').textContent = data.totalGroupMessages || 0;
+      document.getElementById('statPrivateMessages').textContent = data.totalPrivateMessages || 0;
+      document.getElementById('statTotalConnections').textContent = data.totalConnections || 0;
+
+      // Update users panel
+      const usersPanel = document.getElementById('usersPanel');
+      if (data.users && data.users.length > 0) {
+        usersPanel.innerHTML = data.users.map(user =>
+          `<div class="panel-item"><span class="dot"></span><span>${escapeHtml(user)}</span></div>`
+        ).join('');
+      } else {
+        usersPanel.innerHTML = '<div class="empty-state">No users online</div>';
+      }
+
+      // Update groups panel
+      const groupsPanel = document.getElementById('groupsPanel');
+      if (data.groups && data.groups.length > 0) {
+        groupsPanel.innerHTML = data.groups.map(group =>
+          `<div class="panel-item">
+            <span class="group-badge">${escapeHtml(group.name.charAt(0).toUpperCase())}</span>
+            <span>${escapeHtml(group.name)}</span>
+            <span class="members">${group.memberCount} members</span>
+          </div>`
+        ).join('');
+      } else {
+        groupsPanel.innerHTML = '<div class="empty-state">No active groups</div>';
+      }
+    }
+
+    function addLogEntry(log) {
+      const logsContent = document.getElementById('logsContent');
+      if (logsContent.querySelector('.empty-state')) {
+        logsContent.innerHTML = '';
+      }
+      const entry = createLogElement(log);
+      logsContent.insertBefore(entry, logsContent.firstChild);
+
+      // Keep max 100 entries
+      while (logsContent.children.length > 100) {
+        logsContent.removeChild(logsContent.lastChild);
+      }
+    }
+
+    function renderLogs(logs) {
+      const logsContent = document.getElementById('logsContent');
+      if (!logs || logs.length === 0) {
+        logsContent.innerHTML = '<div class="empty-state">No activity yet</div>';
+        return;
+      }
+      logsContent.innerHTML = '';
+      logs.forEach(log => {
+        logsContent.appendChild(createLogElement(log));
+      });
+    }
+
+    function createLogElement(log) {
+      const div = document.createElement('div');
+      const actionClass = log.action.replace(/\s+/g, '-').toLowerCase();
+      div.className = `log-entry ${actionClass}`;
+      const time = new Date(log.timestamp).toLocaleTimeString();
+      div.innerHTML = `
+        <span class="log-time">${time}</span>
+        <span class="log-details">${escapeHtml(log.details)}</span>
+      `;
+      return div;
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // Start connection
+    connect();
+  </script>
+</body>
+</html>
