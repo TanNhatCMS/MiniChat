@@ -31,20 +31,20 @@
 ## Kiến trúc
 
 ```text
-┌─────────────────┐         WebSocket          ┌─────────────────┐
-│   Next.js App   │ ◄─────────────────────────► │  Node.js Server │
+┌─────────────────┐         WebSocket           ┌─────────────────┐
+│   Next.js App   │ ◄─────────────────────────► │  Nestjs Server  │
 │   (Port 3000)   │                             │   (Port 3001)   │
 │                 │                             │                 │
 │  ┌───────────┐  │                             │  ┌───────────┐  │
-│  │  React UI │  │  JSON messages qua WS      │  │  ws lib   │  │
-│  │  3-Panel  │  │  {type, payload}           │  │  HTTP srv  │  │
+│  │  React UI │  │  JSON messages qua WS       │  │  ws lib   │  │
+│  │  3-Panel  │  │  {type, payload}            │  │  HTTP srv │  │
 │  └───────────┘  │                             │  └───────────┘  │
 └─────────────────┘                             └────────┬────────┘
                                                          │
                                                          │ HTTP + WS
                                                          ▼
                                                 ┌─────────────────┐
-                                                │  Bảng điều khiển │
+                                                │ Bảng điều khiển │
                                                 │  (Port 3001/)   │
                                                 └─────────────────┘
 ```

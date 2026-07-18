@@ -12,7 +12,9 @@
     "resolveJsonModule": true,
     "declaration": true,
     "baseUrl": ".",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true
   },
-  "include": ["*.ts"],
+  "include": ["src/**/*.ts", "*.ts"],
   "exclude": ["node_modules", "dist"]
 }
