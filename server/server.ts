@@ -4,6 +4,31 @@ import fs from 'fs';
 import path from 'path';
 
 const PORT: number = parseInt(process.env.PORT || '3001', 10);
+const DASHBOARD_TOKEN: string = process.env.DASHBOARD_TOKEN || '';
+
+/**
+ * Validate dashboard access token.
+ * If DASHBOARD_TOKEN env var is set, requests must include it.
+ * If not set, dashboard is open (development mode).
+ */
+function isDashboardAuthorized(token: string | null): boolean {
+  if (!DASHBOARD_TOKEN) return true; // Open access if no token configured
+  return token === DASHBOARD_TOKEN;
+}
+
+/**
+ * Extract token from HTTP request (query param or Authorization header).
+ */
+function extractHttpToken(req: http.IncomingMessage): string | null {
+  // Check Authorization header: "Bearer <token>"
+  const authHeader = req.headers['authorization'];
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    return authHeader.slice(7);
+  }
+  // Check query parameter: ?token=<token>
+  const url = new URL(req.url || '/', `http://localhost:${PORT}`);
+  return url.searchParams.get('token');
+}
 
 // Interfaces
 interface GroupData {
@@ -150,9 +175,20 @@ function getUserGroups(username: string): string[] {
 }
 
 // HTTP server for dashboard
-// NOTE: Dashboard endpoints are intentionally open (no auth) for development/learning purposes.
+// Protected by DASHBOARD_TOKEN when set. If unset, open access (dev mode).
 const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
-  if (req.url === '/' || req.url === '/dashboard') {
+  if (req.url?.startsWith('/dashboard') || req.url === '/' || req.url?.startsWith('/api/stats')) {
+    const token = extractHttpToken(req);
+    if (!isDashboardAuthorized(token)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Unauthorized. Provide a valid token via ?token= query param or Authorization: Bearer header.' }));
+      return;
+    }
+  }
+
+  const pathname = (req.url || '/').split('?')[0];
+
+  if (pathname === '/' || pathname === '/dashboard') {
     const dashboardPath = path.join(__dirname, 'dashboard.html');
     fs.readFile(dashboardPath, 'utf8', (err: NodeJS.ErrnoException | null, data: string) => {
       if (err) {
@@ -163,7 +199,7 @@ const server = http.createServer((req: http.IncomingMessage, res: http.ServerRes
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end(data);
     });
-  } else if (req.url === '/api/stats') {
+  } else if (pathname === '/api/stats') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(getDashboardStats()));
   } else {
@@ -409,6 +445,12 @@ wss.on('connection', (ws: WebSocket) => {
       }
 
       case 'subscribe-dashboard': {
+        // Require token for dashboard subscription when DASHBOARD_TOKEN is set
+        const dashToken = payload.token as string | undefined;
+        if (!isDashboardAuthorized(dashToken || null)) {
+          sendToWs(ws, 'error', { message: 'Unauthorized: invalid dashboard token' });
+          return;
+        }
         dashboardClients.add(ws);
         sendToWs(ws, 'stats-update', getDashboardStats());
         sendToWs(ws, 'logs-history', { logs: activityLogs });
