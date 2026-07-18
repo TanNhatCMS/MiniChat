@@ -5,6 +5,7 @@
 ## Tính năng
 
 ### Server
+
 - Giao tiếp thời gian thực qua WebSocket sử dụng thư viện `ws`
 - Đăng ký và truy cập dựa trên tên người dùng
 - Nhắn tin phát chung tới tất cả người dùng đang kết nối
@@ -16,6 +17,7 @@
 - API REST cho thống kê (`/api/stats`)
 
 ### Client
+
 - Ứng dụng Next.js 16 hiện đại
 - Sử dụng WebSocket API gốc (không phụ thuộc Socket.IO)
 - Giao diện tối, responsive với bố cục 3 panel
@@ -115,6 +117,7 @@ Client sẽ chạy trên cổng **3000** theo mặc định.
 Mở trình duyệt tại: `http://localhost:3001/dashboard`
 
 Bảng điều khiển cung cấp giám sát thời gian thực:
+
 - Số lượng và danh sách người dùng trực tuyến
 - Nhóm hoạt động với số thành viên
 - Tổng tin nhắn, tin nhắn nhóm, tin nhắn riêng
