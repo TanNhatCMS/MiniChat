@@ -1,32 +1,32 @@
-# MiniChat - Real-time Chat Application
+# MiniChat - Ứng dụng Chat Thời gian thực
 
-A full-featured real-time chat application built with **Node.js WebSocket server** and **Next.js client**. Supports broadcast messaging, private messaging, group chat, and includes an admin dashboard for real-time monitoring.
+Ứng dụng chat thời gian thực đầy đủ tính năng, xây dựng với **Node.js WebSocket server** và **Next.js client**. Hỗ trợ nhắn tin phát chung, nhắn tin riêng, chat nhóm, và bảng điều khiển quản trị để giám sát thời gian thực.
 
-## Features
+## Tính năng
 
 ### Server
-- WebSocket-based real-time communication using `ws` library
-- Username-based access and registration
-- Broadcast messaging to all other connected users
-- Private messaging between individual users
-- Group management (create, join, leave)
-- Group messaging to other group members
-- Admin dashboard with real-time statistics
-- Activity logging and monitoring
-- REST API endpoint for stats (`/api/stats`)
+- Giao tiếp thời gian thực qua WebSocket sử dụng thư viện `ws`
+- Đăng ký và truy cập dựa trên tên người dùng
+- Nhắn tin phát chung tới tất cả người dùng đang kết nối
+- Nhắn tin riêng giữa hai người dùng
+- Quản lý nhóm (tạo, tham gia, rời)
+- Nhắn tin nhóm tới các thành viên trong nhóm
+- Bảng điều khiển quản trị với thống kê thời gian thực
+- Ghi log và giám sát hoạt động
+- API REST cho thống kê (`/api/stats`)
 
 ### Client
-- Modern Next.js 16 application
-- Native WebSocket API (no Socket.IO dependency)
-- Dark theme responsive UI with 3-panel layout
-- Real-time message delivery
-- User presence indicators (online/offline)
-- Group creation and management
-- Private and broadcast messaging
-- Auto-reconnection on disconnect
-- Message filtering by active chat context
+- Ứng dụng Next.js 16 hiện đại
+- Sử dụng WebSocket API gốc (không phụ thuộc Socket.IO)
+- Giao diện tối, responsive với bố cục 3 panel
+- Gửi/nhận tin nhắn thời gian thực
+- Hiển thị trạng thái người dùng (trực tuyến/ngoại tuyến)
+- Tạo và quản lý nhóm
+- Nhắn tin riêng và phát chung
+- Tự động kết nối lại khi mất kết nối
+- Lọc tin nhắn theo ngữ cảnh chat đang hoạt động
 
-## Architecture
+## Kiến trúc
 
 ```text
 ┌─────────────────┐         WebSocket          ┌─────────────────┐
@@ -34,7 +34,7 @@ A full-featured real-time chat application built with **Node.js WebSocket server
 │   (Port 3000)   │                             │   (Port 3001)   │
 │                 │                             │                 │
 │  ┌───────────┐  │                             │  ┌───────────┐  │
-│  │  React UI │  │  JSON messages over WS     │  │  ws lib   │  │
+│  │  React UI │  │  JSON messages qua WS      │  │  ws lib   │  │
 │  │  3-Panel  │  │  {type, payload}           │  │  HTTP srv  │  │
 │  └───────────┘  │                             │  └───────────┘  │
 └─────────────────┘                             └────────┬────────┘
@@ -42,17 +42,17 @@ A full-featured real-time chat application built with **Node.js WebSocket server
                                                          │ HTTP + WS
                                                          ▼
                                                 ┌─────────────────┐
-                                                │    Dashboard    │
+                                                │  Bảng điều khiển │
                                                 │  (Port 3001/)   │
                                                 └─────────────────┘
 ```
 
-## Prerequisites
+## Yêu cầu
 
-- **Node.js** v18 or higher
-- **npm** v9 or higher
+- **Node.js** v18 trở lên
+- **npm** v9 trở lên
 
-## Installation
+## Cài đặt
 
 ### Server
 
@@ -68,170 +68,194 @@ cd client
 npm install
 ```
 
-## Running
+## Chạy ứng dụng
 
-### Start the Server
+### Chạy với PM2 (khuyến nghị cho production)
+
+```bash
+# Cài đặt dependencies ở root
+npm install
+
+# Build cả server và client
+npm run build
+
+# Khởi động cả 2 ứng dụng
+npm start
+
+# Các lệnh quản lý khác
+npm run stop        # Dừng tất cả
+npm run restart     # Khởi động lại
+npm run delete      # Xóa khỏi PM2
+npm run logs        # Xem logs
+npm run status      # Xem trạng thái
+```
+
+### Chạy thủ công (chế độ phát triển)
+
+#### Khởi động Server
 
 ```bash
 cd server
-npm start
+npm run dev
 ```
 
-The server will start on port **3001** by default.
+Server sẽ chạy trên cổng **3001** theo mặc định.
 
-### Start the Client
+#### Khởi động Client
 
 ```bash
 cd client
 npm run dev
 ```
 
-The client will start on port **3000** by default.
+Client sẽ chạy trên cổng **3000** theo mặc định.
 
-### Access the Dashboard
+### Truy cập Bảng điều khiển
 
-Open your browser to: `http://localhost:3001/dashboard`
+Mở trình duyệt tại: `http://localhost:3001/dashboard`
 
-The dashboard provides real-time monitoring of:
-- Online users count and list
-- Active groups with member counts
-- Total messages, group messages, private messages
-- Connection statistics
-- Activity log stream
+Bảng điều khiển cung cấp giám sát thời gian thực:
+- Số lượng và danh sách người dùng trực tuyến
+- Nhóm hoạt động với số thành viên
+- Tổng tin nhắn, tin nhắn nhóm, tin nhắn riêng
+- Thống kê kết nối
+- Luồng nhật ký hoạt động
 
-## Usage Guide
+## Hướng dẫn sử dụng
 
-1. **Login**: Open `http://localhost:3000` and enter a username to join
-2. **Broadcast**: Send messages to all connected users via the Broadcast channel
-3. **Private Message**: Click on an online user in the left sidebar to start a private conversation
-4. **Create Group**: Click "+ Create Group" in the right sidebar
-5. **Join Group**: Available groups appear in the right sidebar - click to join
-6. **Leave Group**: Your joined groups appear in the right sidebar - click to leave
-7. **Switch Channels**: Click on any user, group, or Broadcast in the left sidebar
+1. **Đăng nhập**: Mở `http://localhost:3000` và nhập tên người dùng để tham gia
+2. **Phát chung**: Gửi tin nhắn tới tất cả người dùng qua kênh Phát chung
+3. **Nhắn tin riêng**: Nhấp vào người dùng trực tuyến ở thanh bên trái để bắt đầu cuộc trò chuyện riêng
+4. **Tạo nhóm**: Nhấp "+ Tạo nhóm" ở thanh bên phải
+5. **Tham gia nhóm**: Các nhóm có sẵn hiển thị ở thanh bên phải - nhấp để tham gia
+6. **Rời nhóm**: Các nhóm đã tham gia hiển thị ở thanh bên phải - nhấp để rời
+7. **Chuyển kênh**: Nhấp vào bất kỳ người dùng, nhóm, hoặc Phát chung ở thanh bên trái
 
-## WebSocket Protocol
+## Giao thức WebSocket
 
-### Client → Server Messages
+### Tin nhắn Client → Server
 
-| Type | Payload | Description |
-|------|---------|-------------|
-| `register` | `{username}` | Register a new user |
-| `broadcast-message` | `{message}` | Send to all users |
-| `private-message` | `{target, message}` | Send to specific user |
-| `group-message` | `{group, message}` | Send to group members |
-| `create-group` | `{name}` | Create a new group |
-| `join-group` | `{name}` | Join existing group |
-| `leave-group` | `{name}` | Leave a group |
-| `get-users` | `{}` | Request online users list |
-| `get-groups` | `{}` | Request all groups list |
-| `get-my-groups` | `{}` | Request user's groups |
-| `subscribe-dashboard` | `{}` | Subscribe to dashboard updates |
+| Type | Payload | Mô tả |
+|------|---------|-------|
+| `register` | `{username}` | Đăng ký người dùng mới |
+| `broadcast-message` | `{message}` | Gửi tới tất cả người dùng |
+| `private-message` | `{target, message}` | Gửi tới người dùng cụ thể |
+| `group-message` | `{group, message}` | Gửi tới thành viên nhóm |
+| `create-group` | `{name}` | Tạo nhóm mới |
+| `join-group` | `{name}` | Tham gia nhóm |
+| `leave-group` | `{name}` | Rời nhóm |
+| `get-users` | `{}` | Yêu cầu danh sách người dùng trực tuyến |
+| `get-groups` | `{}` | Yêu cầu danh sách tất cả nhóm |
+| `get-my-groups` | `{}` | Yêu cầu danh sách nhóm của người dùng |
+| `subscribe-dashboard` | `{}` | Đăng ký nhận cập nhật bảng điều khiển |
 
-### Server → Client Messages
+### Tin nhắn Server → Client
 
-| Type | Payload | Description |
-|------|---------|-------------|
-| `register-response` | `{success, username, users, groups, myGroups}` | Registration result |
-| `receive-message` | `{sender, message, type, group?, target?}` | Incoming message |
-| `user-joined` | `{username}` | New user connected |
-| `user-left` | `{username}` | User disconnected |
-| `groups-updated` | `{groups, myGroups}` | Groups list changed |
-| `group-member-joined` | `{group, username}` | User joined a group |
-| `group-member-left` | `{group, username}` | User left a group |
-| `error` | `{message}` | Error notification |
-| `stats-update` | `{onlineUsers, activeGroups, ...}` | Dashboard stats |
-| `new-log` | `{timestamp, action, details}` | New activity log |
-| `logs-history` | `{logs[]}` | Historical activity logs |
+| Type | Payload | Mô tả |
+|------|---------|-------|
+| `register-response` | `{success, username, users, groups, myGroups}` | Kết quả đăng ký |
+| `receive-message` | `{sender, message, type, group?, target?}` | Tin nhắn đến |
+| `user-joined` | `{username}` | Người dùng mới kết nối |
+| `user-left` | `{username}` | Người dùng ngắt kết nối |
+| `groups-updated` | `{groups, myGroups}` | Danh sách nhóm thay đổi |
+| `group-member-joined` | `{group, username}` | Người dùng tham gia nhóm |
+| `group-member-left` | `{group, username}` | Người dùng rời nhóm |
+| `error` | `{message}` | Thông báo lỗi |
+| `stats-update` | `{onlineUsers, activeGroups, ...}` | Thống kê bảng điều khiển |
+| `new-log` | `{timestamp, action, details}` | Nhật ký hoạt động mới |
+| `logs-history` | `{logs[]}` | Lịch sử nhật ký hoạt động |
 
-## Configuration
+## Cấu hình
 
-### Environment Variables
+### Biến môi trường
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `3001` | Server port |
-| `DASHBOARD_PASSWORD` | _(empty)_ | Password to protect dashboard & stats API. If unset, dashboard is open (dev mode). |
-| `NEXT_PUBLIC_WS_URL` | `ws://localhost:3001` | WebSocket server URL for client |
+| Biến | Mặc định | Mô tả |
+|------|----------|-------|
+| `PORT` | `3001` | Cổng server |
+| `DASHBOARD_PASSWORD` | _(trống)_ | Mật khẩu bảo vệ bảng điều khiển & API thống kê. Nếu không đặt, bảng điều khiển mở tự do (chế độ dev). |
+| `NEXT_PUBLIC_WS_URL` | `ws://localhost:3001` | URL WebSocket server cho client |
 
-### Examples
+### Ví dụ
 
 ```bash
-# Custom server port
+# Cổng server tùy chỉnh
 PORT=8080 npm start
 ```
 
 ```bash
-# Protected dashboard (set a password)
+# Bảng điều khiển có mật khẩu
 DASHBOARD_PASSWORD=admin123 npm start
-# Access: http://localhost:3001/dashboard → will show login page
+# Truy cập: http://localhost:3001/dashboard → sẽ hiện trang đăng nhập
 # API: curl http://localhost:3001/api/stats?password=admin123
-# Or via Basic Auth: curl -u admin:admin123 http://localhost:3001/api/stats
+# Hoặc qua Basic Auth: curl -u admin:admin123 http://localhost:3001/api/stats
 ```
 
 ```bash
-# Custom WebSocket URL for client (in .env.local)
+# URL WebSocket tùy chỉnh cho client (trong .env.local)
 NEXT_PUBLIC_WS_URL=ws://your-server:8080
 ```
 
-## Testing
+## Kiểm thử
 
-### Manual Testing
+### Kiểm thử thủ công
 
-1. Open multiple browser tabs/windows to `http://localhost:3000`
-2. Register with different usernames in each tab
-3. Test broadcast, private, and group messaging
-4. Monitor the dashboard at `http://localhost:3001/dashboard`
+1. Mở nhiều tab/cửa sổ trình duyệt tại `http://localhost:3000`
+2. Đăng ký với các tên người dùng khác nhau ở mỗi tab
+3. Thử nghiệm nhắn tin phát chung, riêng, và nhóm
+4. Giám sát bảng điều khiển tại `http://localhost:3001/dashboard`
 
-### API Testing
+### Kiểm thử API
 
 ```bash
-# Get server statistics
+# Lấy thống kê server
 curl http://localhost:3001/api/stats
 ```
 
-### WebSocket Testing (using wscat)
+### Kiểm thử WebSocket (sử dụng wscat)
 
 ```bash
-# Install wscat
+# Cài đặt wscat
 npm install -g wscat
 
-# Connect to server
+# Kết nối tới server
 wscat -c ws://localhost:3001
 ```
 
-Once connected, send messages as JSON:
+Sau khi kết nối, gửi tin nhắn dưới dạng JSON:
 
 ```json
 {"type":"register","payload":{"username":"testuser"}}
 ```
 
 ```json
-{"type":"broadcast-message","payload":{"message":"Hello everyone!"}}
+{"type":"broadcast-message","payload":{"message":"Xin chào mọi người!"}}
 ```
 
-## Project Structure
+## Cấu trúc dự án
 
 ```text
 MiniChat/
+├── package.json            # Scripts PM2 quản lý
+├── ecosystem.config.js     # Cấu hình PM2
 ├── server/
-│   ├── package.json        # Server dependencies
-│   ├── server.js           # WebSocket + HTTP server
-│   └── dashboard.html      # Admin dashboard UI
+│   ├── package.json        # Dependencies của server
+│   ├── server.ts           # WebSocket + HTTP server
+│   └── dashboard.html      # Giao diện bảng điều khiển
 ├── client/
-│   ├── package.json        # Client dependencies
-│   ├── next.config.ts      # Next.js configuration
+│   ├── package.json        # Dependencies của client
+│   ├── next.config.ts      # Cấu hình Next.js
 │   ├── jsconfig.json       # Path aliases
 │   ├── app/
-│   │   ├── layout.js       # Root layout
-│   │   ├── page.js         # Main chat UI component
-│   │   └── globals.css     # Dark theme styles
+│   │   ├── layout.tsx      # Layout gốc
+│   │   ├── page.tsx        # Component giao diện chat chính
+│   │   └── globals.css     # Styles giao diện tối
 │   └── lib/
-│       └── socket.js       # WebSocket client helper
+│       └── socket.ts       # Helper WebSocket client
 ├── .gitignore
 ├── LICENSE
 └── README.md
 ```
 
-## License
+## Giấy phép
 
 MIT
