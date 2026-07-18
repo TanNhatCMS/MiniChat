@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import React from 'react';
-import { connectWs, disconnectWs, sendMessage, onMessage, isConnected } from '../lib/socket';
+import { connectSocket, disconnectSocket, emit, on, isConnected, setUsername as setStoredUsername } from '../lib/socket';
 
 interface ChatMessage {
   id: number;
@@ -61,9 +61,10 @@ export default function Home() {
 
     const unsubs: Array<() => void> = [];
 
-    unsubs.push(onMessage('register-response', (payload) => {
+    unsubs.push(on('register-response', (payload) => {
       if (payload.success) {
         setLoginError('');
+        setStoredUsername(usernameRef.current);
         if (payload.users) {
           setOnlineUsers(payload.users.filter((u: string) => u !== usernameRef.current));
         }
@@ -79,11 +80,11 @@ export default function Home() {
       } else {
         setLoginError(payload.message || 'Đăng ký thất bại');
         setLoggedIn(false);
-        disconnectWs();
+        disconnectSocket();
       }
     }));
 
-    unsubs.push(onMessage('receive-message', (payload) => {
+    unsubs.push(on('receive-message', (payload) => {
       const msg: ChatMessage = {
         id: Date.now() + Math.random(),
         sender: payload.sender,
@@ -128,7 +129,7 @@ export default function Home() {
       }
     }));
 
-    unsubs.push(onMessage('user-joined', (payload) => {
+    unsubs.push(on('user-joined', (payload) => {
       setOnlineUsers((prev) => {
         if (prev.includes(payload.username)) return prev;
         return [...prev, payload.username];
@@ -142,7 +143,7 @@ export default function Home() {
     }));
 
 
-    unsubs.push(onMessage('user-left', (payload) => {
+    unsubs.push(on('user-left', (payload) => {
       setOnlineUsers((prev) => prev.filter((u: string) => u !== payload.username));
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
@@ -152,7 +153,7 @@ export default function Home() {
       }]);
     }));
 
-    unsubs.push(onMessage('groups-updated', (payload) => {
+    unsubs.push(on('groups-updated', (payload) => {
       if (payload.groups) {
         setGroups(payload.groups);
       }
@@ -164,7 +165,7 @@ export default function Home() {
       }
     }));
 
-    unsubs.push(onMessage('group-member-joined', (payload) => {
+    unsubs.push(on('group-member-joined', (payload) => {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
@@ -173,7 +174,7 @@ export default function Home() {
       }]);
     }));
 
-    unsubs.push(onMessage('group-member-left', (payload) => {
+    unsubs.push(on('group-member-left', (payload) => {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
@@ -182,20 +183,13 @@ export default function Home() {
       }]);
     }));
 
-    unsubs.push(onMessage('error', (payload) => {
+    unsubs.push(on('error', (payload) => {
       setMessages((prev) => [...prev, {
         id: Date.now() + Math.random(),
         type: 'system',
         text: `Lỗi: ${payload.message}`,
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       }]);
-    }));
-
-    // Re-register on reconnect to restore session
-    unsubs.push(onMessage('_connected', () => {
-      if (usernameRef.current) {
-        sendMessage('register', { username: usernameRef.current });
-      }
     }));
 
     return () => {
@@ -210,20 +204,19 @@ export default function Home() {
     setLoginError('');
     setLoggedIn(true);
 
-    // If already connected, send register immediately; otherwise connect and register on _connected
+    // Set stored username first so socket.ts auto-registers on connect
+    setStoredUsername(username.trim());
+
     if (isConnected()) {
-      sendMessage('register', { username: username.trim() });
+      // Already connected, just emit register directly
+      emit('register', { username: username.trim() });
     } else {
-      connectWs();
-      const unsub = onMessage('_connected', () => {
-        sendMessage('register', { username: username.trim() });
-        unsub();
-      });
+      connectSocket();
     }
   };
 
   const handleLogout = (): void => {
-    disconnectWs();
+    disconnectSocket();
     setLoggedIn(false);
     setMessages([]);
     setOnlineUsers([]);
@@ -240,7 +233,7 @@ export default function Home() {
     const text = inputMessage.trim();
 
     if (activeChat.type === 'broadcast') {
-      const sent = sendMessage('broadcast-message', { message: text });
+      const sent = emit('broadcast-message', { message: text });
       if (sent) {
         setInputMessage('');
         setMessages((prev) => [...prev, {
@@ -253,7 +246,7 @@ export default function Home() {
         }]);
       }
     } else if (activeChat.type === 'group') {
-      const sent = sendMessage('group-message', { group: activeChat.name, message: text });
+      const sent = emit('group-message', { group: activeChat.name, message: text });
       if (sent) {
         setInputMessage('');
         setMessages((prev) => [...prev, {
@@ -267,7 +260,7 @@ export default function Home() {
         }]);
       }
     } else if (activeChat.type === 'user') {
-      const sent = sendMessage('private-message', { target: activeChat.name, message: text });
+      const sent = emit('private-message', { target: activeChat.name, message: text });
       if (sent) {
         setInputMessage('');
         setMessages((prev) => [...prev, {
@@ -286,17 +279,17 @@ export default function Home() {
 
   const handleCreateGroup = (): void => {
     if (!newGroupName.trim()) return;
-    sendMessage('create-group', { name: newGroupName.trim() });
+    emit('create-group', { name: newGroupName.trim() });
     setNewGroupName('');
     setShowCreateGroup(false);
   };
 
   const handleJoinGroup = (groupName: string): void => {
-    sendMessage('join-group', { name: groupName });
+    emit('join-group', { name: groupName });
   };
 
   const handleLeaveGroup = (groupName: string): void => {
-    sendMessage('leave-group', { name: groupName });
+    emit('leave-group', { name: groupName });
     if (activeChat.type === 'group' && activeChat.name === groupName) {
       setActiveChat({ type: 'broadcast', name: 'Broadcast' });
     }
