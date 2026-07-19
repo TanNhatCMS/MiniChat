@@ -1,42 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import type { GroupData, Stats, ActivityLog, DashboardStats } from '../types';
 
-export interface GroupData {
-  creator: string;
-  members: Set<string>;
-}
-
-export interface Stats {
-  totalConnections: number;
-  totalMessages: number;
-  totalGroupMessages: number;
-  totalPrivateMessages: number;
-  totalBroadcasts: number;
-  serverStartTime: number;
-}
-
-export interface ActivityLog {
-  timestamp: string;
-  action: string;
-  details: string;
-}
-
-export interface DashboardStats {
-  onlineUsers: number;
-  activeGroups: number;
-  totalMessages: number;
-  totalGroupMessages: number;
-  totalPrivateMessages: number;
-  totalBroadcasts: number;
-  totalConnections: number;
-  uptime: number;
-  users: string[];
-  groups: Array<{
-    name: string;
-    creator: string;
-    memberCount: number;
-    members: string[];
-  }>;
-}
+// Re-export types for backward compatibility
+export type { GroupData, Stats, ActivityLog, DashboardStats } from '../types';
 
 @Injectable()
 export class ChatStore {

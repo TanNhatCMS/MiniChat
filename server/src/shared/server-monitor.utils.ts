@@ -1,33 +1,7 @@
-export interface UptimeBreakdown {
-  days: number;
-  hours: number;
-  minutes: number;
-  seconds: number;
-  totalSeconds: number;
-}
+import type { StatusLevel, UptimeBreakdown } from './types';
 
-export interface ServerStatus {
-  cpu: {
-    usagePercent: number;
-  };
-  memory: {
-    heapUsedMB: number;
-    heapTotalMB: number;
-    heapUsagePercent: number;
-    systemTotalMB: number;
-    systemFreeMB: number;
-    systemUsedMB: number;
-    systemUsagePercent: number;
-  };
-  uptime: UptimeBreakdown;
-  runtime: {
-    nodeVersion: string;
-    platform: string;
-  };
-  timestamp: string;
-}
-
-export type StatusLevel = 'normal' | 'warning' | 'critical';
+// Re-export types for backward compatibility
+export type { UptimeBreakdown, ServerStatus, StatusLevel } from './types';
 
 /** Convert bytes to megabytes, rounded to 1 decimal */
 export function bytesToMB(bytes: number): number {
