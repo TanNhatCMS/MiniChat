@@ -167,7 +167,6 @@ export default function DashboardPage() {
         <StatCard label="Tin nhắn riêng" value={stats?.totalPrivateMessages ?? 0} />
         <StatCard label="Tổng broadcasts" value={stats?.totalBroadcasts ?? 0} />
         <StatCard label="Tổng kết nối" value={stats?.totalConnections ?? 0} />
-        <StatCard label="Uptime" value={formatUptime(stats?.uptime ?? 0)} />
       </div>
 
       {/* Server Status Panel */}
@@ -260,6 +259,12 @@ const styles: Record<string, React.CSSProperties> = {
     color: '#e0e0e0',
     minHeight: '100vh',
     padding: '24px',
+    position: 'fixed',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    overflowY: 'auto',
   },
   header: {
     textAlign: 'center',
