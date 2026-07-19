@@ -553,11 +553,13 @@ describe('ChatService - Property-Based Tests', () => {
   });
 
   /**
-   * Property 7: Disconnect cleanup toàn bộ
-   * **Validates: Requirement 6.6**
+   * Property 7: Disconnect cleanup removes user from all stores
+   * Also validates Design Property 19: Disconnect cleanup removes all user state
+   * **Validates: Requirements 6.6, 10.1, 10.4, 10.5**
    *
    * For ANY registered user in ANY number of groups, after disconnect,
-   * the user is removed from ALL data stores (users map, userToSocket map, all group memberships).
+   * the user is removed from ALL data stores (users map, userToSocket map, all group memberships),
+   * and `user-left` is emitted to all remaining connected sockets via `server.emit`.
    */
   describe('Property 7: Disconnect cleanup removes user from all stores', () => {
     it('removes user from users map, userToSocket map, and all group memberships', () => {
@@ -638,6 +640,53 @@ describe('ChatService - Property-Based Tests', () => {
             for (const groupName of uniqueGroups) {
               expect(store.groups.has(groupName)).toBe(false);
             }
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    /**
+     * Design Property 19: Disconnect cleanup emits user-left to remaining sockets
+     * **Validates: Requirements 10.1, 10.4, 10.5**
+     *
+     * After disconnect of a registered user, `server.emit` is called with
+     * `('user-left', { username: trimmedUsername })` to notify all remaining connected sockets.
+     */
+    it('emits user-left to all remaining sockets via server.emit after disconnect', () => {
+      fc.assert(
+        fc.property(
+          validUsernameArb,
+          fc.array(fc.string({ minLength: 1, maxLength: 15 }).filter((s) => s.trim().length > 0), {
+            minLength: 0,
+            maxLength: 5,
+          }),
+          (username, groupNames) => {
+            store.users.clear();
+            store.userToSocket.clear();
+            store.groups.clear();
+
+            const trimmedUsername = username.trim();
+            const socketId = 'disconnect-socket';
+            const client = createMockSocket(socketId);
+
+            // Register user
+            service.register(client, { username });
+
+            // Create unique groups (deduplicate trimmed names)
+            const uniqueGroups = [...new Set(groupNames.map((g) => g.trim()).filter((g) => g.length > 0))];
+            for (const groupName of uniqueGroups) {
+              service.createGroup(client, { name: groupName });
+            }
+
+            // Reset mocks for disconnect
+            mockServer.emit.mockClear();
+
+            // Disconnect
+            service.handleDisconnect(client);
+
+            // Verify: server.emit was called with 'user-left' and the correct username
+            expect(mockServer.emit).toHaveBeenCalledWith('user-left', { username: trimmedUsername });
           },
         ),
         { numRuns: 100 },
@@ -1642,6 +1691,707 @@ describe('Property 13: Join group validation errors', () => {
 
           // Verify no group-member-joined emitted
           expect(mockServer.to).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 16: Group state changes broadcast groups-updated
+ * **Validates: Requirements 6.3, 7.3, 8.3, 10.6**
+ *
+ * After any group mutation (create, join, leave, disconnect), verify `groups-updated`
+ * is emitted to every connected user with correct `groups`, `myGroups`, and `groupMembers`.
+ */
+describe('Property 16: Group state changes broadcast groups-updated', () => {
+  it('after createGroup, groups-updated is emitted to every connected user with correct payload', () => {
+    fc.assert(
+      fc.property(
+        // Generate 2-3 distinct usernames
+        fc.uniqueArray(
+          validUsernameArb.map((s) => s.trim()),
+          { minLength: 2, maxLength: 3, comparator: (a, b) => a === b },
+        ).filter((arr) => arr.every((u) => u.length >= 1 && u.length <= 20)),
+        // Generate a valid group name
+        fc.string({ minLength: 1, maxLength: 15 }).filter((s) => s.trim().length > 0).map((s) => s.trim()),
+        (usernames, groupName) => {
+          // Fresh instances inside the property body
+          const store = new ChatStore();
+          const service = new ChatService(store, createMockServerMonitor());
+          const mockServer = createMockServer();
+          service.setServer(mockServer);
+
+          // Register all users
+          const sockets: Array<{ id: string; client: any }> = [];
+          for (let i = 0; i < usernames.length; i++) {
+            const socketId = `socket-${i}`;
+            const client = createMockSocket(socketId);
+            service.register(client, { username: usernames[i] });
+            sockets.push({ id: socketId, client });
+          }
+
+          // Clear mockServer mocks before group mutation
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // Perform group mutation: user 0 creates a group
+          service.createGroup(sockets[0].client, { name: groupName });
+
+          // Collect all mockServer.to calls that emitted 'groups-updated'
+          const toCalls = mockServer.to.mock.calls;
+          const toEmitCalls = mockServer.__toEmit.mock.calls;
+
+          // Find 'groups-updated' emit calls
+          const groupsUpdatedCalls: Array<{ targetSocketId: string; payload: any }> = [];
+          for (let i = 0; i < toEmitCalls.length; i++) {
+            if (toEmitCalls[i][0] === 'groups-updated') {
+              // The corresponding .to() call has the socket ID
+              groupsUpdatedCalls.push({
+                targetSocketId: toCalls[i][0],
+                payload: toEmitCalls[i][1],
+              });
+            }
+          }
+
+          // Verify: groups-updated was emitted to EVERY connected user
+          const targetedSocketIds = groupsUpdatedCalls.map((c) => c.targetSocketId);
+          for (const { id } of sockets) {
+            expect(targetedSocketIds).toContain(id);
+          }
+
+          // Verify payload correctness for each user
+          for (let i = 0; i < usernames.length; i++) {
+            const socketId = `socket-${i}`;
+            const username = usernames[i];
+
+            const callForUser = groupsUpdatedCalls.find((c) => c.targetSocketId === socketId);
+            expect(callForUser).toBeDefined();
+
+            const payload = callForUser!.payload;
+
+            // groups: all group names in store
+            const expectedGroups = store.getAllGroupNames();
+            expect([...payload.groups].sort()).toEqual([...expectedGroups].sort());
+
+            // myGroups: groups this user belongs to
+            const expectedMyGroups = store.getUserGroups(username);
+            expect([...payload.myGroups].sort()).toEqual([...expectedMyGroups].sort());
+
+            // groupMembers: group members for this user's groups
+            const expectedGroupMembers = store.getGroupMembers(username);
+            expect(payload.groupMembers).toEqual(expectedGroupMembers);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 15: No empty groups invariant
+ * **Validates: Requirements 8.4, 10.3**
+ *
+ * For any state of the ChatStore, no group in the `groups` map SHALL have an empty
+ * `members` Set. Whenever the last member leaves (via `leave-group` or disconnect cleanup),
+ * the group entry SHALL be deleted.
+ */
+describe('Property 15: No empty groups invariant', () => {
+  it('after any sequence of group operations, no group has an empty members Set', () => {
+    fc.assert(
+      fc.property(
+        // Generate 2-4 unique usernames
+        fc.uniqueArray(
+          validUsernameArb.map((s) => s.trim()),
+          { minLength: 2, maxLength: 4, comparator: (a, b) => a === b },
+        ).filter((arr) => arr.every((u) => u.length >= 1 && u.length <= 20)),
+        // Generate a random sequence of operations
+        fc.array(
+          fc.oneof(
+            fc.record({
+              type: fc.constant('createGroup' as const),
+              userIdx: fc.integer({ min: 0, max: 3 }),
+              groupName: fc.string({ minLength: 1, maxLength: 10 }).filter((s) => s.trim().length > 0).map((s) => s.trim()),
+            }),
+            fc.record({
+              type: fc.constant('joinGroup' as const),
+              userIdx: fc.integer({ min: 0, max: 3 }),
+              groupIdx: fc.integer({ min: 0, max: 9 }),
+            }),
+            fc.record({
+              type: fc.constant('leaveGroup' as const),
+              userIdx: fc.integer({ min: 0, max: 3 }),
+              groupIdx: fc.integer({ min: 0, max: 9 }),
+            }),
+            fc.record({
+              type: fc.constant('disconnect' as const),
+              userIdx: fc.integer({ min: 0, max: 3 }),
+            }),
+          ),
+          { minLength: 1, maxLength: 20 },
+        ),
+        (usernames, operations) => {
+          // Fresh instances to avoid cross-contamination
+          const store = new ChatStore();
+          const service = new ChatService(store, createMockServerMonitor());
+          const mockServer = createMockServer();
+          service.setServer(mockServer);
+
+          const numUsers = usernames.length;
+
+          // Register all users
+          const sockets = usernames.map((_, i) => createMockSocket(`socket-${i}`));
+          for (let i = 0; i < numUsers; i++) {
+            service.register(sockets[i], { username: usernames[i] });
+          }
+
+          // Track which users are still connected (for disconnect/reconnect)
+          const connected = new Array(numUsers).fill(true);
+
+          // Track created group names for index-based access
+          const createdGroups: string[] = [];
+
+          // Helper: check invariant - no group has empty members
+          function assertNoEmptyGroups() {
+            for (const [groupName, groupData] of store.groups) {
+              expect(
+                groupData.members.size,
+                `Group "${groupName}" has empty members Set`,
+              ).toBeGreaterThan(0);
+            }
+          }
+
+          // Check invariant holds initially (no groups yet, vacuously true)
+          assertNoEmptyGroups();
+
+          // Execute random operations
+          for (const op of operations) {
+            const userIdx = op.userIdx % numUsers;
+
+            switch (op.type) {
+              case 'createGroup': {
+                if (!connected[userIdx]) break;
+                service.createGroup(sockets[userIdx], { name: op.groupName });
+                if (store.groups.has(op.groupName) && !createdGroups.includes(op.groupName)) {
+                  createdGroups.push(op.groupName);
+                }
+                break;
+              }
+              case 'joinGroup': {
+                if (!connected[userIdx]) break;
+                if (createdGroups.length === 0) break;
+                const groupName = createdGroups[op.groupIdx % createdGroups.length];
+                service.joinGroup(sockets[userIdx], { name: groupName });
+                break;
+              }
+              case 'leaveGroup': {
+                if (!connected[userIdx]) break;
+                if (createdGroups.length === 0) break;
+                const groupName = createdGroups[op.groupIdx % createdGroups.length];
+                service.leaveGroup(sockets[userIdx], { name: groupName });
+                break;
+              }
+              case 'disconnect': {
+                if (!connected[userIdx]) break;
+                service.handleDisconnect(sockets[userIdx]);
+                connected[userIdx] = false;
+                break;
+              }
+            }
+
+            // Verify invariant after EACH operation
+            assertNoEmptyGroups();
+          }
+
+          // Final verification: no group has empty members
+          assertNoEmptyGroups();
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});
+
+
+/**
+ * Property 18: Group message validation errors
+ * **Validates: Requirements 9.3, 9.4**
+ *
+ * For any group-message attempt where the group does not exist OR the sender is not a member,
+ * an `error` event SHALL be emitted to the sender with the appropriate message and no message
+ * SHALL be delivered. Message counters (totalMessages, totalGroupMessages) SHALL NOT be incremented.
+ */
+describe('Property 18: Group message validation errors', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('emits "Group not found" error for non-existent group and does not deliver or increment counters', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim().length > 0),
+        fc.string({ minLength: 0, maxLength: 200 }),
+        (username, groupName, message) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const client = createMockSocket('sender-socket');
+
+          // Register the user
+          service.register(client, { username });
+
+          // Ensure group does NOT exist
+          const trimmedGroup = groupName.trim();
+          store.groups.delete(trimmedGroup);
+
+          // Snapshot counters before groupMessage attempt
+          const totalMessagesBefore = store.stats.totalMessages;
+          const totalGroupMessagesBefore = store.stats.totalGroupMessages;
+
+          // Clear mocks after registration
+          client.emit.mockClear();
+          client.to.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // Attempt to send group message to non-existent group
+          service.groupMessage(client, { group: trimmedGroup, message });
+
+          // Verify error emitted to sender
+          expect(client.emit).toHaveBeenCalledWith('error', {
+            message: 'Group not found',
+          });
+
+          // Verify no message was delivered (client.to NOT called)
+          expect(client.to).not.toHaveBeenCalled();
+
+          // Verify counters did NOT increase
+          expect(store.stats.totalMessages).toBe(totalMessagesBefore);
+          expect(store.stats.totalGroupMessages).toBe(totalGroupMessagesBefore);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('emits "Not a member of this group" error for non-member sender and does not deliver or increment counters', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validUsernameArb,
+        fc.string({ minLength: 1, maxLength: 15 }).filter((s) => s.trim().length > 0).map((s) => s.trim()),
+        fc.string({ minLength: 0, maxLength: 200 }),
+        (user1Username, user2Username, groupName, message) => {
+          const user1Trimmed = user1Username.trim();
+          const user2Trimmed = user2Username.trim();
+
+          // Ensure distinct usernames
+          if (user1Trimmed === user2Trimmed) return;
+
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const client1 = createMockSocket('socket-user1');
+          const client2 = createMockSocket('socket-user2');
+
+          // Register user1 (group creator) and user2
+          service.register(client1, { username: user1Username });
+          service.register(client2, { username: user2Username });
+
+          // user1 creates the group (user1 is the only member)
+          service.createGroup(client1, { name: groupName });
+
+          // Verify user2 is NOT a member
+          const group = store.groups.get(groupName);
+          expect(group).toBeDefined();
+          expect(group!.members.has(user2Trimmed)).toBe(false);
+
+          // Snapshot counters before groupMessage attempt
+          const totalMessagesBefore = store.stats.totalMessages;
+          const totalGroupMessagesBefore = store.stats.totalGroupMessages;
+
+          // Clear mocks before the action under test
+          client2.emit.mockClear();
+          client2.to.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // user2 (non-member) attempts to send group message
+          service.groupMessage(client2, { group: groupName, message });
+
+          // Verify error emitted to sender (user2)
+          expect(client2.emit).toHaveBeenCalledWith('error', {
+            message: 'Not a member of this group',
+          });
+
+          // Verify no message was delivered (client2.to NOT called)
+          expect(client2.to).not.toHaveBeenCalled();
+
+          // Verify counters did NOT increase
+          expect(store.stats.totalMessages).toBe(totalMessagesBefore);
+          expect(store.stats.totalGroupMessages).toBe(totalGroupMessagesBefore);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 17: Group message delivery to room only
+ * **Validates: Requirements 9.1**
+ *
+ * For any member of a group sending a group message, the `receive-message` event
+ * with `type: "group"` SHALL be emitted to all other sockets in the group's Socket.IO room
+ * and SHALL NOT be emitted to the sender or to non-members.
+ */
+describe('Property 17: Group message delivery to room only', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  // Generator for valid group names (non-empty, 1-15 chars after trim)
+  const validGroupNameArb = fc
+    .string({ minLength: 1, maxLength: 15 })
+    .filter((s) => s.trim().length > 0)
+    .map((s) => s.trim());
+
+  it('client.to(room).emit is called with correct payload and sender does not receive', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validGroupNameArb,
+        fc.string({ minLength: 0, maxLength: 200 }),
+        (username, groupName, message) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Create a mock socket with a separate emit for the .to() chain
+          const toEmit = vi.fn();
+          const client = {
+            id: 'sender-socket',
+            emit: vi.fn(),
+            broadcast: { emit: vi.fn() },
+            join: vi.fn(),
+            leave: vi.fn(),
+            to: vi.fn().mockReturnValue({ emit: toEmit }),
+          } as any;
+
+          // Register user
+          service.register(client, { username });
+
+          // Create group (user becomes a member)
+          service.createGroup(client, { name: groupName });
+
+          // Clear all mocks after setup
+          client.emit.mockClear();
+          client.broadcast.emit.mockClear();
+          client.to.mockClear();
+          toEmit.mockClear();
+          client.join.mockClear();
+
+          const trimmedUsername = username.trim();
+
+          // Send group message
+          service.groupMessage(client, { group: groupName, message });
+
+          // Verify client.to was called with the group room name
+          expect(client.to).toHaveBeenCalledWith(`group:${groupName}`);
+
+          // Verify the chained .emit was called with correct payload
+          expect(toEmit).toHaveBeenCalledWith('receive-message', {
+            sender: trimmedUsername,
+            message,
+            type: 'group',
+            group: groupName,
+          });
+
+          // Verify the sender's direct client.emit was NOT called with 'receive-message'
+          // (sender should not receive their own group message)
+          const directEmitCalls = client.emit.mock.calls;
+          const receiveMessageCalls = directEmitCalls.filter(
+            (call: any[]) => call[0] === 'receive-message',
+          );
+          expect(receiveMessageCalls.length).toBe(0);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 20: Get-users excludes the requester
+ * **Validates: Requirements 11.1**
+ *
+ * For any registered user requesting `get-users`, the returned `users-list` SHALL contain
+ * all registered usernames in `userToSocket` except the requesting user's own username.
+ */
+describe('Property 20: Get-users excludes the requester', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('users-list contains all other usernames but NOT the requester', () => {
+    fc.assert(
+      fc.property(
+        // Generate 2-5 distinct valid usernames (trimmed)
+        fc.uniqueArray(
+          validUsernameArb.map((s) => s.trim()),
+          { minLength: 2, maxLength: 5, comparator: (a, b) => a === b },
+        ).filter((arr) => arr.every((u) => u.length >= 1 && u.length <= 20)),
+        // Index of the requester within the usernames array
+        fc.nat(),
+        (usernames, requesterSeed) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Register all users
+          const sockets: any[] = [];
+          for (let i = 0; i < usernames.length; i++) {
+            const client = createMockSocket(`socket-${i}`);
+            service.register(client, { username: usernames[i] });
+            sockets.push(client);
+          }
+
+          // Pick the requester
+          const requesterIdx = requesterSeed % usernames.length;
+          const requesterClient = sockets[requesterIdx];
+          const requesterUsername = usernames[requesterIdx];
+
+          // Clear mocks before calling getUsers
+          requesterClient.emit.mockClear();
+
+          // Call getUsers
+          service.getUsers(requesterClient);
+
+          // Verify client.emit was called with 'users-list'
+          expect(requesterClient.emit).toHaveBeenCalledWith(
+            'users-list',
+            expect.objectContaining({ users: expect.any(Array) }),
+          );
+
+          const emitCall = requesterClient.emit.mock.calls.find(
+            (call: any[]) => call[0] === 'users-list',
+          );
+          const returnedUsers: string[] = emitCall![1].users;
+
+          // Verify the requester's username is NOT in the list
+          expect(returnedUsers).not.toContain(requesterUsername);
+
+          // Verify ALL other registered usernames ARE in the list
+          const expectedOthers = usernames.filter((u) => u !== requesterUsername);
+          expect([...returnedUsers].sort()).toEqual([...expectedOthers].sort());
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 21: Get-groups returns correct membership views
+ * **Validates: Requirements 12.1, 12.2**
+ *
+ * For any set of registered users and created groups:
+ * - `getGroups(client)` emits `groups-list` with ALL group names in the store
+ * - `getMyGroups(client)` emits `my-groups-list` with ONLY the groups where the user is a member
+ */
+describe('Property 21: Get-groups returns correct membership views', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  // Generator for valid group names (non-empty, 1-15 chars after trim)
+  const validGroupNameArb = fc
+    .string({ minLength: 1, maxLength: 15 })
+    .filter((s) => s.trim().length > 0)
+    .map((s) => s.trim());
+
+  it('getGroups returns ALL group names regardless of membership', () => {
+    fc.assert(
+      fc.property(
+        // Generate 2-3 distinct usernames
+        fc.uniqueArray(
+          validUsernameArb.map((s) => s.trim()),
+          { minLength: 2, maxLength: 3, comparator: (a, b) => a === b },
+        ).filter((arr) => arr.every((u) => u.length >= 1 && u.length <= 20)),
+        // Generate 2-4 distinct group names
+        fc.uniqueArray(validGroupNameArb, {
+          minLength: 2,
+          maxLength: 4,
+          comparator: (a, b) => a === b,
+        }),
+        (usernames, groupNames) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Register all users
+          const sockets = usernames.map((_, i) => createMockSocket(`socket-${i}`));
+          for (let i = 0; i < usernames.length; i++) {
+            service.register(sockets[i], { username: usernames[i] });
+          }
+
+          // User 0 creates all groups
+          for (const gName of groupNames) {
+            service.createGroup(sockets[0], { name: gName });
+          }
+
+          // User 1 joins some (but not all) groups - join first half
+          const groupsToJoin = groupNames.slice(0, Math.max(1, Math.floor(groupNames.length / 2)));
+          for (const gName of groupsToJoin) {
+            service.joinGroup(sockets[1], { name: gName });
+          }
+
+          // Clear mocks before calling getGroups
+          sockets[1].emit.mockClear();
+
+          // Call getGroups for user 1
+          service.getGroups(sockets[1]);
+
+          // Verify groups-list was emitted with ALL group names
+          expect(sockets[1].emit).toHaveBeenCalledWith('groups-list', {
+            groups: expect.any(Array),
+          });
+
+          const groupsListCall = sockets[1].emit.mock.calls.find(
+            (call: any[]) => call[0] === 'groups-list',
+          );
+          expect(groupsListCall).toBeDefined();
+          const emittedGroups = groupsListCall![1].groups;
+
+          // Should contain ALL group names (not just the ones user 1 joined)
+          expect([...emittedGroups].sort()).toEqual([...groupNames].sort());
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('getMyGroups returns ONLY groups where the user is a member', () => {
+    fc.assert(
+      fc.property(
+        // Generate 2-3 distinct usernames
+        fc.uniqueArray(
+          validUsernameArb.map((s) => s.trim()),
+          { minLength: 2, maxLength: 3, comparator: (a, b) => a === b },
+        ).filter((arr) => arr.every((u) => u.length >= 1 && u.length <= 20)),
+        // Generate 2-4 distinct group names
+        fc.uniqueArray(validGroupNameArb, {
+          minLength: 2,
+          maxLength: 4,
+          comparator: (a, b) => a === b,
+        }),
+        // Random subset bitmask for which groups user 1 should join
+        fc.array(fc.boolean(), { minLength: 4, maxLength: 4 }),
+        (usernames, groupNames, joinFlags) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Register all users
+          const sockets = usernames.map((_, i) => createMockSocket(`socket-${i}`));
+          for (let i = 0; i < usernames.length; i++) {
+            service.register(sockets[i], { username: usernames[i] });
+          }
+
+          // User 0 creates all groups
+          for (const gName of groupNames) {
+            service.createGroup(sockets[0], { name: gName });
+          }
+
+          // User 1 joins some groups based on joinFlags (ensuring at least one NOT joined)
+          const expectedMyGroups: string[] = [];
+          let joinedSome = false;
+          let skippedSome = false;
+
+          for (let i = 0; i < groupNames.length; i++) {
+            const shouldJoin = joinFlags[i % joinFlags.length];
+            if (shouldJoin) {
+              service.joinGroup(sockets[1], { name: groupNames[i] });
+              expectedMyGroups.push(groupNames[i]);
+              joinedSome = true;
+            } else {
+              skippedSome = true;
+            }
+          }
+
+          // Skip if user joined all or none (we want partial membership)
+          if (!joinedSome || !skippedSome) return;
+
+          // Clear mocks before calling getMyGroups
+          sockets[1].emit.mockClear();
+
+          // Call getMyGroups for user 1
+          service.getMyGroups(sockets[1]);
+
+          // Verify my-groups-list was emitted
+          expect(sockets[1].emit).toHaveBeenCalledWith('my-groups-list', {
+            groups: expect.any(Array),
+          });
+
+          const myGroupsListCall = sockets[1].emit.mock.calls.find(
+            (call: any[]) => call[0] === 'my-groups-list',
+          );
+          expect(myGroupsListCall).toBeDefined();
+          const emittedMyGroups = myGroupsListCall![1].groups;
+
+          // Should contain ONLY the groups user 1 is a member of
+          expect([...emittedMyGroups].sort()).toEqual([...expectedMyGroups].sort());
+
+          // Verify that groups NOT joined are NOT in the list
+          for (let i = 0; i < groupNames.length; i++) {
+            if (!joinFlags[i % joinFlags.length]) {
+              expect(emittedMyGroups).not.toContain(groupNames[i]);
+            }
+          }
         },
       ),
       { numRuns: 100 },
