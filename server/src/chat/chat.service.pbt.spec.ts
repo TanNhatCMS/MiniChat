@@ -1056,3 +1056,595 @@ describe('Design Property 8: Private message targets only the recipient', () => 
     );
   });
 });
+
+
+/**
+ * Property 14: Leave group removes membership
+ * **Validates: Requirements 8.1, 8.2**
+ *
+ * For any two distinct valid usernames and any valid group name,
+ * when user2 leaves a group they joined, they are removed from the members Set,
+ * `client.leave` is called with the room name, and `group-member-left` is emitted
+ * to remaining room members.
+ */
+describe('Property 14: Leave group removes membership', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('leaving a group removes user from members, calls client.leave, and emits group-member-left', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validUsernameArb,
+        fc.string({ minLength: 1, maxLength: 15 }).filter((s) => s.trim().length > 0).map((s) => s.trim()),
+        (user1Username, user2Username, groupName) => {
+          const user1Trimmed = user1Username.trim();
+          const user2Trimmed = user2Username.trim();
+
+          // Ensure distinct usernames
+          if (user1Trimmed === user2Trimmed) return;
+
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const client1 = createMockSocket('socket-user1');
+          const client2 = createMockSocket('socket-user2');
+
+          // Register user1 (creator) and user2
+          service.register(client1, { username: user1Username });
+          service.register(client2, { username: user2Username });
+
+          // user1 creates the group
+          service.createGroup(client1, { name: groupName });
+
+          // user2 joins the group
+          service.joinGroup(client2, { name: groupName });
+
+          // Verify user2 is in group members before leaving
+          expect(store.groups.get(groupName)!.members.has(user2Trimmed)).toBe(true);
+
+          // Clear mocks before leave operation
+          client2.leave.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // user2 leaves the group
+          service.leaveGroup(client2, { name: groupName });
+
+          // Verify user2 is removed from group members
+          const group = store.groups.get(groupName);
+          if (group) {
+            expect(group.members.has(user2Trimmed)).toBe(false);
+          }
+
+          // Verify client2.leave was called with the room name
+          expect(client2.leave).toHaveBeenCalledWith(`group:${groupName}`);
+
+          // Verify group-member-left was emitted to the remaining room
+          expect(mockServer.to).toHaveBeenCalledWith(`group:${groupName}`);
+          expect(mockServer.__toEmit).toHaveBeenCalledWith('group-member-left', {
+            group: groupName,
+            username: user2Trimmed,
+          });
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 9: Private message to offline user returns error
+ * **Validates: Requirements 5.3**
+ *
+ * For any valid sender username and any target username that is NOT registered
+ * in userToSocket, calling privateMessage emits an error event to the sender
+ * with "User not found or offline" and does not increment any message counters.
+ */
+describe('Property 9: Private message to offline user returns error', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('emits error to sender and does not increment counters when target is offline', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validUsernameArb,
+        fc.string({ minLength: 0, maxLength: 200 }),
+        (senderUsername, baseTargetUsername, message) => {
+          // Guarantee target is NOT in userToSocket by appending a unique suffix
+          const offlineUsername = `${baseTargetUsername.trim()}_offline_${Date.now()}`;
+
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+
+          const senderClient = createMockSocket('sender-socket');
+
+          // Register sender
+          service.register(senderClient, { username: senderUsername });
+
+          // Snapshot counters before private message attempt
+          const totalMessagesBefore = store.stats.totalMessages;
+          const totalPrivateMessagesBefore = store.stats.totalPrivateMessages;
+
+          // Clear mocks after registration (registration triggers broadcastDashboardStats)
+          senderClient.emit.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // Send private message to offline user
+          service.privateMessage(senderClient, { target: offlineUsername, message });
+
+          // Verify error emitted to sender
+          expect(senderClient.emit).toHaveBeenCalledWith('error', {
+            message: 'User not found or offline',
+          });
+
+          // Verify counters did NOT increase
+          expect(store.stats.totalMessages).toBe(totalMessagesBefore);
+          expect(store.stats.totalPrivateMessages).toBe(totalPrivateMessagesBefore);
+
+          // Verify mockServer.to was NOT called (no message delivered)
+          expect(mockServer.to).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 10: Group creation initializes correct state
+ * **Validates: Requirements 6.1, 6.2**
+ *
+ * For any valid group name (non-empty, not already existing) and registered creator,
+ * after `create-group` the ChatStore SHALL contain a group entry with `creator === username`
+ * and `members` containing exactly the creator, and the creator's socket SHALL have joined
+ * room "group:{name}".
+ */
+describe('Property 10: Group creation initializes correct state', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  // Generator for valid group names (non-empty, 1-15 chars after trim)
+  const validGroupNameArb = fc
+    .string({ minLength: 1, maxLength: 15 })
+    .filter((s) => s.trim().length > 0)
+    .map((s) => s.trim());
+
+  it('after create-group, store contains group with correct creator, members, and client.join was called', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validGroupNameArb,
+        (username, groupName) => {
+          // Fresh state for each run
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const socketId = 'creator-socket';
+          const client = createMockSocket(socketId);
+
+          // Register the user
+          service.register(client, { username });
+
+          // Clear mocks after registration
+          client.join.mockClear();
+
+          // Create the group
+          service.createGroup(client, { name: groupName });
+
+          const trimmedUsername = username.trim();
+
+          // Verify store.groups.has(groupName) is true
+          expect(store.groups.has(groupName)).toBe(true);
+
+          // Verify store.groups.get(groupName).creator === username.trim()
+          const group = store.groups.get(groupName)!;
+          expect(group.creator).toBe(trimmedUsername);
+
+          // Verify store.groups.get(groupName).members contains exactly the creator
+          expect(group.members.size).toBe(1);
+          expect(group.members.has(trimmedUsername)).toBe(true);
+
+          // Verify client.join was called with "group:{groupName}"
+          expect(client.join).toHaveBeenCalledWith(`group:${groupName}`);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 12: Join group adds membership and room
+ * **Validates: Requirements 7.1, 7.2**
+ *
+ * For any two distinct valid usernames and any valid group name,
+ * when a non-member joins an existing group:
+ * - The joiner is added to the group's members Set
+ * - `client.join` is called with the room name `"group:{groupName}"`
+ * - `group-member-joined` is emitted to the room with the group name and joiner's username
+ */
+describe('Property 12: Join group adds membership and room', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  // Generator for valid group names (1-15 chars after trim, non-empty)
+  const validGroupNameArb = fc
+    .string({ minLength: 1, maxLength: 15 })
+    .filter((s) => s.trim().length > 0)
+    .map((s) => s.trim());
+
+  it('joining a group adds member to Set, calls client.join, and emits group-member-joined', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        validUsernameArb,
+        validGroupNameArb,
+        (user1Username, user2Username, groupName) => {
+          const user1Trimmed = user1Username.trim();
+          const user2Trimmed = user2Username.trim();
+
+          // Ensure distinct usernames
+          if (user1Trimmed === user2Trimmed) return;
+
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const client1 = createMockSocket('socket-creator');
+          const client2 = createMockSocket('socket-joiner');
+
+          // Register user1 (group creator)
+          service.register(client1, { username: user1Username });
+          // Register user2 (joiner)
+          service.register(client2, { username: user2Username });
+
+          // user1 creates the group
+          service.createGroup(client1, { name: groupName });
+
+          // Clear mocks before the join action we want to test
+          client2.join.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // user2 joins the group
+          service.joinGroup(client2, { name: groupName });
+
+          // Verify: user2 is added to the group's members Set
+          const group = store.groups.get(groupName);
+          expect(group).toBeDefined();
+          expect(group!.members.has(user2Trimmed)).toBe(true);
+
+          // Verify: client2.join was called with the room name
+          expect(client2.join).toHaveBeenCalledWith(`group:${groupName}`);
+
+          // Verify: group-member-joined emitted to room
+          expect(mockServer.to).toHaveBeenCalledWith(`group:${groupName}`);
+          expect(mockServer.__toEmit).toHaveBeenCalledWith('group-member-joined', {
+            group: groupName,
+            username: user2Trimmed,
+          });
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 11: Group creation validation
+ * **Validates: Requirements 6.4, 6.5**
+ *
+ * For any group name that is empty/missing or already exists in the ChatStore,
+ * `create-group` SHALL emit an `error` event with the appropriate message
+ * and SHALL NOT modify the groups map.
+ */
+describe('Property 11: Group creation validation', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('emits error "Group name is required" for empty/whitespace-only names and does not modify groups', () => {
+    fc.assert(
+      fc.property(
+        fc.oneof(
+          fc.constant(''),
+          fc.constant(undefined as unknown as string),
+          fc.stringOf(fc.constant(' '), { minLength: 1, maxLength: 30 }),
+          fc.stringOf(
+            fc.oneof(fc.constant(' '), fc.constant('\t'), fc.constant('\n')),
+            { minLength: 1, maxLength: 30 },
+          ),
+        ),
+        (invalidName) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Register a user so the createGroup guard passes the "unregistered" check
+          const client = createMockSocket('creator-socket');
+          service.register(client, { username: 'TestUser' });
+
+          // Seed a pre-existing group to verify it remains untouched
+          store.groups.set('ExistingGroup', {
+            creator: 'TestUser',
+            members: new Set(['TestUser']),
+          });
+          const groupsCountBefore = store.groups.size;
+
+          // Clear mocks after setup
+          client.emit.mockClear();
+          client.join.mockClear();
+
+          // Attempt to create group with invalid name
+          service.createGroup(client, { name: invalidName });
+
+          // Verify error event emitted
+          expect(client.emit).toHaveBeenCalledWith('error', {
+            message: 'Group name is required',
+          });
+
+          // Verify groups map unchanged
+          expect(store.groups.size).toBe(groupsCountBefore);
+          expect(store.groups.has('ExistingGroup')).toBe(true);
+
+          // Verify client.join was NOT called (no room joined)
+          expect(client.join).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('emits error "Group already exists" for duplicate group names and does not modify groups', () => {
+    fc.assert(
+      fc.property(
+        fc
+          .string({ minLength: 1, maxLength: 20 })
+          .filter((s) => s.trim().length > 0),
+        validUsernameArb,
+        validUsernameArb,
+        (groupName, creatorUsername, secondUsername) => {
+          const trimmedCreator = creatorUsername.trim();
+          const trimmedSecond = secondUsername.trim();
+
+          // Ensure distinct usernames
+          if (trimmedCreator === trimmedSecond) return;
+
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          // Register creator and create the group
+          const creatorClient = createMockSocket('creator-socket');
+          service.register(creatorClient, { username: creatorUsername });
+          service.createGroup(creatorClient, { name: groupName.trim() });
+
+          // Register a second user who will attempt to create the same group
+          const secondClient = createMockSocket('second-socket');
+          service.register(secondClient, { username: secondUsername });
+
+          // Snapshot groups state before duplicate attempt
+          const groupsCountBefore = store.groups.size;
+          const groupDataBefore = store.groups.get(groupName.trim());
+          const membersBefore = groupDataBefore
+            ? new Set(groupDataBefore.members)
+            : new Set();
+
+          // Clear mocks
+          secondClient.emit.mockClear();
+          secondClient.join.mockClear();
+
+          // Attempt to create group with already-existing name
+          service.createGroup(secondClient, { name: groupName.trim() });
+
+          // Verify error event emitted
+          expect(secondClient.emit).toHaveBeenCalledWith('error', {
+            message: 'Group already exists',
+          });
+
+          // Verify groups map not modified
+          expect(store.groups.size).toBe(groupsCountBefore);
+
+          // Verify original group data is unchanged
+          const groupDataAfter = store.groups.get(groupName.trim());
+          expect(groupDataAfter).toBeDefined();
+          expect(groupDataAfter!.creator).toBe(trimmedCreator);
+          expect(groupDataAfter!.members).toEqual(membersBefore);
+
+          // Verify client.join was NOT called
+          expect(secondClient.join).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+
+/**
+ * Property 13: Join group validation errors
+ * **Validates: Requirements 7.4, 7.5**
+ *
+ * For non-existent group or already-member user, verify `error` event with correct message
+ * and no state modification.
+ */
+describe('Property 13: Join group validation errors', () => {
+  let service: ChatService;
+  let store: ChatStore;
+  let mockServer: ReturnType<typeof createMockServer>;
+
+  beforeEach(() => {
+    store = new ChatStore();
+    service = new ChatService(store, createMockServerMonitor());
+    mockServer = createMockServer();
+    service.setServer(mockServer);
+  });
+
+  it('emits "Group not found" error when joining a non-existent group and makes no state changes', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim().length > 0),
+        (username, groupName) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const client = createMockSocket('test-socket');
+
+          // Register the user
+          service.register(client, { username });
+
+          // Ensure group does NOT exist
+          const trimmedGroup = groupName.trim();
+          store.groups.delete(trimmedGroup);
+
+          // Snapshot state before joinGroup attempt
+          const groupsCountBefore = store.groups.size;
+          const usersCountBefore = store.users.size;
+          const userToSocketCountBefore = store.userToSocket.size;
+
+          // Clear mocks
+          client.emit.mockClear();
+          client.join.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // Attempt to join non-existent group
+          service.joinGroup(client, { name: trimmedGroup });
+
+          // Verify error emitted
+          expect(client.emit).toHaveBeenCalledWith('error', {
+            message: 'Group not found',
+          });
+
+          // Verify no state changes
+          expect(store.groups.size).toBe(groupsCountBefore);
+          expect(store.users.size).toBe(usersCountBefore);
+          expect(store.userToSocket.size).toBe(userToSocketCountBefore);
+
+          // Verify client did NOT join any room
+          expect(client.join).not.toHaveBeenCalled();
+
+          // Verify no group-member-joined emitted
+          expect(mockServer.to).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  it('emits "Already a member of this group" error when user is already a member and group size unchanged', () => {
+    fc.assert(
+      fc.property(
+        validUsernameArb,
+        fc.string({ minLength: 1, maxLength: 20 }).filter((s) => s.trim().length > 0),
+        (username, groupName) => {
+          // Fresh state
+          store.users.clear();
+          store.userToSocket.clear();
+          store.groups.clear();
+
+          const trimmedGroup = groupName.trim();
+          const client = createMockSocket('test-socket');
+
+          // Register user
+          service.register(client, { username });
+
+          // Create group (user is auto-added as member)
+          service.createGroup(client, { name: trimmedGroup });
+
+          // Verify group exists and user is a member
+          const group = store.groups.get(trimmedGroup);
+          expect(group).toBeDefined();
+          expect(group!.members.has(username.trim())).toBe(true);
+
+          // Snapshot state before second joinGroup attempt
+          const membersSizeBefore = group!.members.size;
+          const groupsCountBefore = store.groups.size;
+
+          // Clear mocks
+          client.emit.mockClear();
+          client.join.mockClear();
+          mockServer.to.mockClear();
+          mockServer.__toEmit.mockClear();
+
+          // Attempt to join the group again
+          service.joinGroup(client, { name: trimmedGroup });
+
+          // Verify error emitted
+          expect(client.emit).toHaveBeenCalledWith('error', {
+            message: 'Already a member of this group',
+          });
+
+          // Verify group members size is unchanged
+          expect(group!.members.size).toBe(membersSizeBefore);
+
+          // Verify no additional state changes
+          expect(store.groups.size).toBe(groupsCountBefore);
+
+          // Verify client did NOT join room again
+          expect(client.join).not.toHaveBeenCalled();
+
+          // Verify no group-member-joined emitted
+          expect(mockServer.to).not.toHaveBeenCalled();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
