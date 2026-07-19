@@ -3,31 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { connectSocket, disconnectSocket, on, emit } from '../../lib/socket';
 import { ServerStatusPanel } from './ServerStatusPanel';
-import type { ServerStatus } from '../../lib/server-status.utils';
-
-interface DashboardStats {
-  onlineUsers: number;
-  activeGroups: number;
-  totalMessages: number;
-  totalGroupMessages: number;
-  totalPrivateMessages: number;
-  totalBroadcasts: number;
-  totalConnections: number;
-  uptime: number;
-  users: string[];
-  groups: Array<{
-    name: string;
-    creator: string;
-    memberCount: number;
-    members: string[];
-  }>;
-}
-
-interface ActivityLog {
-  timestamp: string;
-  action: string;
-  details: string;
-}
+import type { ServerStatus, DashboardStats, ActivityLog } from '../../lib/types';
 
 function formatUptime(seconds: number): string {
   const h = Math.floor(seconds / 3600);

@@ -3,22 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import React from 'react';
 import { connectSocket, disconnectSocket, emit, on, isConnected, setUsername as setStoredUsername } from '../lib/socket';
-
-interface ChatMessage {
-  id: number;
-  sender?: string;
-  text: string;
-  type: string;
-  group?: string | null;
-  target?: string | null;
-  time: string;
-  isSent?: boolean;
-}
-
-interface ActiveChat {
-  type: string;
-  name: string;
-}
+import type { ChatMessage, ActiveChat } from '../lib/types';
 
 export default function Home() {
   const [username, setUsername] = useState<string>('');

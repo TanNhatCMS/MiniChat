@@ -1,15 +1,11 @@
 'use client';
 
-import type { ServerStatus } from '../../lib/server-status.utils';
+import type { ServerStatusPanelProps } from '../../lib/types';
 import {
   formatUptimeBreakdown,
   getStatusColor,
   getStatusLevel,
 } from '../../lib/server-status.utils';
-
-interface ServerStatusPanelProps {
-  status: ServerStatus | null;
-}
 
 export function ServerStatusPanel({ status }: ServerStatusPanelProps) {
   if (!status) {
